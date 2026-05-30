@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime
+import getpass
 import os
 
 from rossum_api import AsyncRossumAPIClient
@@ -25,14 +26,16 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 
-def _prompt_valid(label: str, validator, env_value=None):
+def _prompt_valid(label: str, validator, env_value=None, secret=False):
     """Prompt until ``validator`` accepts the input. If ``env_value`` is set,
-    validate it once (no loop) so a bad env var fails fast with a clear error."""
+    validate it once (no loop) so a bad env var fails fast with a clear error.
+    ``secret=True`` reads via getpass so the value is not echoed to the terminal."""
     if env_value:
         return validator(env_value)
+    read = getpass.getpass if secret else input
     while True:
         try:
-            return validator(input(label))
+            return validator(read(label))
         except validation.ValidationError as exc:
             print(f"{RED}{exc}{RESET}")
 
@@ -40,9 +43,10 @@ def _prompt_valid(label: str, validator, env_value=None):
 def gather_connection() -> dict:
     """Collect and validate Rossum connection details (token may come from env)."""
     token = _prompt_valid(
-        "Please enter your Rossum API token: ",
+        "Please enter your Rossum API token (input hidden): ",
         validation.validate_token,
         env_value=os.environ.get("ROSSUM_API_TOKEN"),
+        secret=True,
     )
     domain = _prompt_valid(
         "Please enter Rossum domain url with /v1 in the end "

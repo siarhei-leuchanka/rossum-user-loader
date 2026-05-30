@@ -20,12 +20,27 @@ def test_export_log_writes_csv_next_to_input(tmp_path):
 
 
 def test_gather_connection_builds_organization(monkeypatch):
-    answers = iter(["TOKEN", "https://x.rossum.app/api/v1", "42"])
+    # Token is read via getpass (hidden), not input.
+    answers = iter(["https://x.rossum.app/api/v1", "42"])
     monkeypatch.setenv("ROSSUM_API_TOKEN", "")  # force prompt path
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
     conn = cli.gather_connection()
     assert conn["token"] == "TOKEN"
     assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
+
+
+def test_gather_connection_token_from_env_skips_getpass(monkeypatch):
+    answers = iter(["https://x.rossum.app/api/v1", "42"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
+
+    def _boom(*a, **k):
+        raise AssertionError("getpass must not be called when an env token is set")
+
+    monkeypatch.setattr(cli.getpass, "getpass", _boom)
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    conn = cli.gather_connection()
+    assert conn["token"] == "ENVTOKEN"
 
 
 def test_run_web_subcommand_invokes_launcher(monkeypatch):
@@ -37,16 +52,18 @@ def test_run_web_subcommand_invokes_launcher(monkeypatch):
 
 
 def test_gather_connection_reprompts_on_bad_org_id(monkeypatch):
-    answers = iter(["TOKEN", "https://x.rossum.app/api/v1", "abc", "42"])
+    answers = iter(["https://x.rossum.app/api/v1", "abc", "42"])
     monkeypatch.setenv("ROSSUM_API_TOKEN", "")
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
     conn = cli.gather_connection()
     assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
 
 
 def test_gather_connection_reprompts_on_bad_url(monkeypatch):
-    answers = iter(["TOKEN", "ftp://nope", "https://x.rossum.app/api/v1", "42"])
+    answers = iter(["ftp://nope", "https://x.rossum.app/api/v1", "42"])
     monkeypatch.setenv("ROSSUM_API_TOKEN", "")
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
     conn = cli.gather_connection()
     assert conn["domain"] == "https://x.rossum.app/api/v1"
