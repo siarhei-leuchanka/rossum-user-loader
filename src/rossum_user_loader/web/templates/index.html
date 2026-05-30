@@ -15,6 +15,9 @@
     .pane.active { display: block; }
     #status { margin-top: .5rem; font-weight: 600; }
     .ok { color: #137333; } .err { color: #b00020; }
+    tr.dup td { background: #fdecea; }
+    tr.dup input[data-col="username"], tr.dup input[data-col="email"] { border: 1px solid #b00020; }
+    #dupwarn { margin: .5rem 0; color: #b00020; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -53,6 +56,7 @@
       <tbody id="grid"></tbody>
     </table>
 
+    <div id="dupwarn" style="display:none"></div>
     <div id="status"></div>
     <div id="results"></div>
     <p><a id="loglink" href="/log.csv" style="display:none">Download log (CSV)</a></p>
@@ -140,6 +144,11 @@
       TEXT_COLS.forEach(col => {
         const inp = document.createElement('input');
         inp.dataset.col = col; inp.value = vals[col] || '';
+        // username (and email, since username defaults to email) drive the
+        // duplicate check — re-evaluate as the user types.
+        if (col === 'username' || col === 'email') {
+          inp.addEventListener('input', refreshDupWarning);
+        }
         const cell = td(inp);
         tr.appendChild(cell);
       });
@@ -156,13 +165,51 @@
     }
 
     function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
-    function addRows(n) { for (let i = 0; i < n; i++) addRow(); }
-    function removeAllRows() { document.getElementById('grid').innerHTML = ''; }
+    function addRows(n) { for (let i = 0; i < n; i++) addRow(); refreshDupWarning(); }
+    function removeAllRows() { document.getElementById('grid').innerHTML = ''; refreshDupWarning(); }
     function clearGrid() {
       document.getElementById('grid').innerHTML = '';
       document.getElementById('results').innerHTML = '';
       document.getElementById('status').textContent = '';
       document.getElementById('loglink').style.display = 'none';
+      refreshDupWarning();
+    }
+
+    function effUsername(tr) {
+      const get = (col) => {
+        const el = tr.querySelector('[data-col="' + col + '"]');
+        return el ? el.value.trim() : '';
+      };
+      // Mirrors the back-end: username, or email when username is blank.
+      return (get('username') || get('email')).toLowerCase();
+    }
+
+    function checkDup(tr) {
+      const u = effUsername(tr);
+      const isDup = !!u && EXISTING_USERNAMES.has(u);
+      tr.classList.toggle('dup', isDup);
+      const title = isDup
+        ? 'A user with this username already exists in Rossum — this row will be skipped.'
+        : '';
+      ['username', 'email'].forEach(col => {
+        const el = tr.querySelector('[data-col="' + col + '"]');
+        if (el) el.title = title;
+      });
+      return isDup;
+    }
+
+    function refreshDupWarning() {
+      let n = 0;
+      document.querySelectorAll('#grid tr').forEach(tr => { if (checkDup(tr)) n++; });
+      const warn = document.getElementById('dupwarn');
+      if (n > 0) {
+        warn.textContent = '⚠ ' + n + ' row(s) match an existing user (by username) ' +
+          'and will be skipped during load.';
+        warn.style.display = 'block';
+      } else {
+        warn.textContent = '';
+        warn.style.display = 'none';
+      }
     }
 
     const HEADER = ["auth_type","email","first_name","last_name","username","oidc_id","role","queue_ids","can_approve"];
@@ -176,6 +223,7 @@
         HEADER.forEach((col, i) => { vals[col] = (cells[i] || '').trim(); });
         addRow(vals);
       });
+      refreshDupWarning();
     }
 
     function collectRows() {

@@ -62,7 +62,8 @@ def _jsonable(records: list[dict]) -> list[dict]:
 def create_app(state: AppState) -> Flask:
     app = Flask(__name__, template_folder="templates")
     app.secret_key = state.secret
-    app.config["SECRET_TOKEN"] = state.secret
+    # Local session key gating browser access for this run. NOT a Rossum token.
+    app.config["SESSION_KEY"] = state.secret
 
     @app.before_request
     def _gate():
@@ -73,7 +74,7 @@ def create_app(state: AppState) -> Flask:
         if (
             request.method == "GET"
             and request.path == "/"
-            and request.args.get("token") == app.config["SECRET_TOKEN"]
+            and request.args.get("key") == app.config["SESSION_KEY"]
         ):
             session["authed"] = True
             return None

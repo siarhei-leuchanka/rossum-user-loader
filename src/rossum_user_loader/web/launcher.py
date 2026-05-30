@@ -8,10 +8,65 @@ from __future__ import annotations
 import asyncio
 import secrets
 import socket
+import threading
 import webbrowser
 
 from rossum_user_loader import core
 from rossum_user_loader.web.app import AppState, create_app
+
+
+class Backend:
+    """Owns the Rossum client + token and runs ALL API work on its own event
+    loop in a dedicated thread.
+
+    The Flask layer never imports ``rossum_api``, never sees the token, and never
+    makes the HTTP call itself: it only hands row lists to ``run_load`` and gets
+    back log records. Each call is dispatched onto this thread's loop and the
+    caller (a Flask request thread) blocks for the result. Because there is a
+    single long-lived loop, one client is created and reused across loads.
+    """
+
+    def __init__(self, conn: dict):
+        self._conn = conn
+        self._client = None
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def _call(self, coro):
+        # Dispatch a coroutine onto the back-end loop and block for its result.
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    async def _client_on_loop(self):
+        if self._client is None:
+            from rossum_api import AsyncRossumAPIClient
+            from rossum_api.dtos import Token
+
+            self._client = AsyncRossumAPIClient(
+                base_url=self._conn["domain"],
+                credentials=Token(token=self._conn["token"]),
+            )
+        return self._client
+
+    def collect_data(self):
+        async def _go():
+            return await core.collect_data(await self._client_on_loop())
+
+        return self._call(_go())
+
+    def run_load(self, rows, organization, org_groups, org_queues, existing_users) -> list[dict]:
+        async def _go():
+            client = await self._client_on_loop()
+            logger = await core.run_load(
+                client, rows, organization, org_groups, org_queues, existing_users
+            )
+            return logger.get()
+
+        return self._call(_go())
 
 
 def _free_port() -> int:
@@ -24,27 +79,18 @@ def _free_port() -> int:
     return port
 
 
-def make_state(organization, client_factory, active_users, org_groups, org_queues) -> AppState:
-    """Build the AppState the Flask layer renders. The injected ``loader``
-    closes over the client factory/org so the web package never sees the token.
+def make_state(organization, backend, active_users, org_groups, org_queues) -> AppState:
+    """Build the AppState the Flask layer renders.
 
-    ``client_factory`` is a zero-arg callable returning a fresh API client. Each
-    load runs via ``asyncio.run`` (a new event loop per call) and a new client is
-    created INSIDE that loop, because an async HTTP client binds to the loop it is
-    first used on. Reusing one client across ``asyncio.run`` calls would fail with
-    "Event loop is closed".
+    ``loader`` simply hands the rows to ``backend.run_load``, which executes the
+    API work on the back-end thread/loop. The web layer never touches Rossum or
+    the token — it only calls this in-process handoff and blocks for the result.
     """
     roles = [{"name": g.name, "url": g.url} for g in org_groups]
     queues = [{"id": q.id, "name": q.name, "url": q.url} for q in org_queues]
 
     def loader(rows: list[dict]) -> list[dict]:
-        async def _go():
-            client = client_factory()
-            return await core.run_load(
-                client, rows, organization, org_groups, org_queues, active_users
-            )
-
-        return asyncio.run(_go()).get()
+        return backend.run_load(rows, organization, org_groups, org_queues, active_users)
 
     return AppState(
         secret=secrets.token_urlsafe(32),
@@ -56,33 +102,27 @@ def make_state(organization, client_factory, active_users, org_groups, org_queue
 
 
 def launch() -> None:
-    """Prompt for connection details, fetch reference data, and serve locally."""
-    from rossum_api import AsyncRossumAPIClient
-    from rossum_api.dtos import Token
-
+    """Prompt for connection details, start the back-end, and serve locally."""
     from rossum_user_loader.cli import gather_connection
 
     conn = gather_connection()
 
-    def client_factory():
-        return AsyncRossumAPIClient(
-            base_url=conn["domain"], credentials=Token(token=conn["token"])
-        )
-
-    # Fetch reference data with a client created inside this run's event loop.
-    async def _collect():
-        return await core.collect_data(client_factory())
-
-    active_users, org_groups, org_queues = asyncio.run(_collect())
+    # The back-end thread owns the client/token and makes every Rossum call.
+    backend = Backend(conn)
+    active_users, org_groups, org_queues = backend.collect_data()
 
     state = make_state(
-        conn["organization"], client_factory, active_users, org_groups, org_queues
+        conn["organization"], backend, active_users, org_groups, org_queues
     )
     app = create_app(state)
     port = _free_port()
-    url = f"http://127.0.0.1:{port}/?token={state.secret}"
+    url = f"http://127.0.0.1:{port}/?key={state.secret}"
 
     print(f"\nUser Loader web UI running. Open this URL in your browser:\n  {url}\n")
+    print(
+        "(The ?key=... above is a local session key for THIS run only — "
+        "it is NOT your Rossum API token, which never leaves this process.)\n"
+    )
     print("Press Ctrl-C to stop.\n")
     webbrowser.open(url)
     app.run(host="127.0.0.1", port=port)
