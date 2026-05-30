@@ -197,6 +197,14 @@
           body: JSON.stringify({ rows })
         });
         const data = await resp.json();
+        if (!resp.ok || data.error) {
+          const span = document.createElement('span');
+          span.className = 'err';
+          span.textContent = 'Load failed: ' + (data.error || resp.status);
+          status.innerHTML = '';
+          status.appendChild(span);
+          return;
+        }
         const s = data.summary;
         status.innerHTML = '<span class="ok">Created ' + s.created + '</span>, skipped ' +
           s.skipped + ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
@@ -209,11 +217,16 @@
 
     function renderResults(records) {
       const div = document.getElementById('results');
-      const lines = records.map(r => {
+      div.innerHTML = '';
+      const h = document.createElement('h3');
+      h.textContent = 'Results';
+      div.appendChild(h);
+      records.forEach(r => {
         const who = r.username || r.email || '';
-        return '<div>' + (r.Messages || '') + (who ? ' — ' + who : '') + '</div>';
+        const line = document.createElement('div');
+        line.textContent = (r.Messages || '') + (who ? ' — ' + who : '');
+        div.appendChild(line);
       });
-      div.innerHTML = '<h3>Results</h3>' + lines.join('');
     }
 
     // Start with a few empty rows.

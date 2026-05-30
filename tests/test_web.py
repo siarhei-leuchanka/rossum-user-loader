@@ -81,3 +81,15 @@ def test_index_contains_grid_and_controls(client):
         assert marker in html
     assert b"annotator" in html
     assert b"Q1" in html
+
+
+def test_load_returns_500_when_loader_raises():
+    def boom(rows):
+        raise RuntimeError("kaboom")
+    app = create_app(make_state(loader=boom))
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    c.get("/?token=s3cr3t")
+    resp = c.post("/load", json={"rows": [{"username": "x"}]})
+    assert resp.status_code == 500
+    assert "kaboom" in resp.get_json()["error"]

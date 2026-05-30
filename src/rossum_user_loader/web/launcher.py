@@ -15,6 +15,8 @@ from rossum_user_loader.web.app import AppState, create_app
 
 
 def _free_port() -> int:
+    # Ask the OS for a free port, then release it. There is a small TOCTOU
+    # window before Flask rebinds it; acceptable for a local single-user tool.
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]

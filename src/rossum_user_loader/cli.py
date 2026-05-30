@@ -106,7 +106,7 @@ def run(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("web", help="Launch the local web UI for preparing the user batch")
+    sub.add_parser("web", help="Launch the local web UI to prepare and load the user batch")
     args = parser.parse_args(argv)
 
     if args.command == "web":

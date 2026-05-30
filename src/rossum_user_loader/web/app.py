@@ -14,7 +14,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Callable
 
-from flask import Flask, jsonify, render_template, request, send_file, session
+from flask import Flask, Response, jsonify, render_template, request, send_file, session
 
 from rossum_user_loader import csvio
 
@@ -90,7 +90,10 @@ def create_app(state: AppState) -> Flask:
     def load():
         payload = request.get_json(force=True, silent=True) or {}
         rows = payload.get("rows", [])
-        records = state.loader(rows)
+        try:
+            records = state.loader(rows)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": str(exc)}), 500
         state.last_log = records
         return jsonify({"summary": _summarize(records), "records": _jsonable(records)})
 
@@ -98,10 +101,14 @@ def create_app(state: AppState) -> Flask:
     def log_csv():
         if not state.last_log:
             return ("No log yet", 404)
-        tmp_dir = tempfile.mkdtemp()
-        path = csvio.write_log(os.path.join(tmp_dir, "user_load_log"), state.last_log)
-        return send_file(
-            path, mimetype="text/csv", as_attachment=True, download_name="user_load_log.csv"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = csvio.write_log(os.path.join(tmp_dir, "user_load_log"), state.last_log)
+            with open(path, "rb") as fh:
+                data = fh.read()
+        return Response(
+            data,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=user_load_log.csv"},
         )
 
     return app
