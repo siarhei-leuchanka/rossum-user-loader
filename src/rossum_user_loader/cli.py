@@ -84,7 +84,7 @@ def _console_reporter(level: str, message: str) -> None:
 def _export_log(logger: core.Logger, input_file_path: str) -> None:
     """Write the run log (CSV) next to the input file."""
     directory = os.path.dirname(input_file_path)
-    timestamp = datetime.datetime.now()
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     name = f"user_load_{timestamp}"
     base = os.path.join(directory, name) if directory else name
     out_path = csvio.write_log(base, logger.get())
