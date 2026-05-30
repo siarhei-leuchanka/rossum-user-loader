@@ -12,7 +12,7 @@ def test_write_log_produces_csv_with_union_headers(tmp_path):
 
     assert out.endswith(".csv")
     with open(out, newline="") as fh:
-        rows = list(csv.DictReader(fh))
+        rows = list(csv.DictReader(fh, delimiter=csvio.DELIMITER))
 
     assert rows[0]["Messages"] == "ok"
     assert rows[0]["groups"] == "g1\ng2"      # lists joined by newline
@@ -25,7 +25,7 @@ import pytest
 
 def _write_csv(path, header, rows):
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
+        writer = csv.writer(fh, delimiter=csvio.DELIMITER)
         writer.writerow(header)
         writer.writerows(rows)
 
@@ -53,5 +53,5 @@ def test_template_path_points_to_existing_csv():
     assert path.endswith("user_load_template.csv")
     assert os.path.exists(path)
     with open(path, newline="", encoding="utf-8-sig") as fh:
-        header = next(csv.reader(fh))
+        header = next(csv.reader(fh, delimiter=csvio.DELIMITER))
     assert "username" in header

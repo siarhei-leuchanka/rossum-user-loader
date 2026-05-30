@@ -163,3 +163,11 @@ def test_loopback_origin_post_is_allowed(client):
     client.get("/?key=s3cr3t")  # authenticate
     resp = client.post("/load", json={"rows": []}, headers={"Origin": "http://127.0.0.1:5000"})
     assert resp.status_code == 200
+
+
+def test_index_has_csv_file_loader(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b'type="file"' in html          # CSV file picker
+    assert b"loadCsvFile(" in html
+    assert b"parseDelimited(" in html       # quote-aware ';' parser
+    assert b'const DELIM = \';\'' in html or b"const DELIM = ';'" in html

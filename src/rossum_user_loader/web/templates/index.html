@@ -35,6 +35,7 @@
   <section id="pane-load" class="pane active">
     <div class="toolbar">
       <a href="/template.csv">Download template</a>
+      <label>Load CSV: <input type="file" id="csvfile" accept=".csv,text/csv" onchange="loadCsvFile(this)"></label>
       <label>Add <input id="nrows" type="number" value="1" min="1" style="width:4rem"> rows
         <button onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
       </label>
@@ -51,8 +52,8 @@
     </div>
 
     <details>
-      <summary>Paste from Excel (tab-separated; column order must match the header)</summary>
-      <textarea id="paste" rows="4" placeholder="paste rows here"></textarea>
+      <summary>Paste rows (semicolon ";" separated; column order must match the template header)</summary>
+      <textarea id="paste" rows="4" placeholder="auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve"></textarea>
       <button onclick="importPaste()">Import paste</button>
       <button onclick="document.getElementById('paste').value=''">Clear paste</button>
     </details>
@@ -289,17 +290,63 @@
     }
 
     const HEADER = ["auth_type","email","first_name","last_name","username","oidc_id","role","queue_ids","can_approve"];
+    const DELIM = ';';
+
+    // Minimal RFC-4180-style parser: handles quoted fields with embedded
+    // delimiters/newlines (e.g. a multi-line queue_ids cell) and "" escapes.
+    function parseDelimited(text) {
+      const rows = [];
+      let row = [], field = '', inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+          } else { field += c; }
+        } else if (c === '"') {
+          inQuotes = true;
+        } else if (c === DELIM) {
+          row.push(field); field = '';
+        } else if (c === '\r') {
+          // ignore
+        } else if (c === '\n') {
+          row.push(field); rows.push(row); row = []; field = '';
+        } else {
+          field += c;
+        }
+      }
+      if (field !== '' || row.length) { row.push(field); rows.push(row); }
+      return rows;
+    }
+
+    function importDelimited(text) {
+      const parsed = parseDelimited(text).filter(r => r.some(c => c.trim() !== ''));
+      if (!parsed.length) return;
+      // Skip a header row if the first line looks like the template header.
+      let start = 0;
+      const first = parsed[0].map(c => c.trim().toLowerCase());
+      if (first.includes('email') && first.includes('auth_type')) start = 1;
+      for (let i = start; i < parsed.length; i++) {
+        const cells = parsed[i];
+        const vals = {};
+        HEADER.forEach((col, j) => { vals[col] = (cells[j] || '').trim(); });
+        addRow(vals);
+      }
+      refreshDupWarning();
+    }
 
     function importPaste() {
-      const text = document.getElementById('paste').value.trim();
-      if (!text) return;
-      text.split(/\r?\n/).forEach(line => {
-        const cells = line.split('\t');
-        const vals = {};
-        HEADER.forEach((col, i) => { vals[col] = (cells[i] || '').trim(); });
-        addRow(vals);
-      });
-      refreshDupWarning();
+      const text = document.getElementById('paste').value;
+      if (!text.trim()) return;
+      importDelimited(text);
+    }
+
+    function loadCsvFile(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => { importDelimited(String(reader.result)); input.value = ''; };
+      reader.readAsText(file);
     }
 
     function collectRows() {

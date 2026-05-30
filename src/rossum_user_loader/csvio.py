@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import csv
 
+# Column delimiter for templates, uploads, and logs. ';' matches how Excel
+# writes/opens CSV in many locales (where ',' is the decimal separator).
+DELIMITER = ";"
+
 
 def _stringify(value) -> str:
     if isinstance(value, list):
@@ -26,7 +30,7 @@ def write_log(path: str, records: list[dict]) -> str:
                 columns.append(key)
 
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
+        writer = csv.writer(fh, delimiter=DELIMITER)
         writer.writerow(columns)
         for record in records:
             writer.writerow([_stringify(record.get(col, "")) for col in columns])
@@ -37,7 +41,7 @@ def write_log(path: str, records: list[dict]) -> str:
 def read_rows(file_path: str, required_columns) -> list[dict]:
     """Read a CSV into a list of ``{column: str}`` dicts (values stripped)."""
     with open(file_path, newline="", encoding="utf-8-sig") as fh:
-        reader = csv.DictReader(fh)
+        reader = csv.DictReader(fh, delimiter=DELIMITER)
         columns = reader.fieldnames or []
         missing = [c for c in required_columns if c not in columns]
         if missing:
