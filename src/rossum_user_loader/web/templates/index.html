@@ -4,101 +4,199 @@
   <meta charset="utf-8">
   <title>Rossum User Loader</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 1.5rem; }
-    .tabs button { padding: .4rem .8rem; cursor: pointer; }
-    .tabs button.active { font-weight: 700; }
-    table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-    th, td { border: 1px solid #ccc; padding: 2px 4px; font-size: 13px; }
-    input, select, textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
-    .toolbar { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+    :root { --dj-header: #417690; --dj-accent: #79aec8; --dj-accent-dark: #609ab6; --dj-line: #e0e0e0; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", Roboto, system-ui, sans-serif; margin: 0; color: #303030; background: #fff; }
+
+    /* Header (Django-admin style) */
+    .dj-header { background: var(--dj-header); color: #fff; display: flex; align-items: center;
+      justify-content: space-between; padding: .7rem 1.25rem; }
+    .dj-title { font-size: 18px; font-weight: 600; letter-spacing: .3px; }
+    .dj-nav { display: flex; gap: .5rem; }
+    .dj-nav button { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.45);
+      border-radius: 4px; padding: .4rem .9rem; cursor: pointer; font-size: 13px; }
+    .dj-nav button:hover { background: rgba(255,255,255,.15); }
+    .dj-nav button.active { background: #fff; color: var(--dj-header); font-weight: 700; border-color: #fff; }
+
+    /* Breadcrumbs */
+    .breadcrumbs { background: #f8f8f8; border-bottom: 1px solid #eaeaea; padding: .5rem 1.25rem;
+      font-size: 13px; color: #888; }
+    .breadcrumbs a { color: #447e9b; text-decoration: none; }
+    .breadcrumbs a:hover { text-decoration: underline; }
+
+    .content { padding: 1.1rem 1.25rem 2rem; max-width: 1200px; }
+
+    /* Modules (cards) */
+    .module { border: 1px solid var(--dj-line); border-radius: 4px; margin-bottom: 1.25rem; overflow: hidden; }
+    .module > h2 { margin: 0; background: var(--dj-accent); color: #fff; font-size: 12px; font-weight: 700;
+      letter-spacing: .6px; text-transform: uppercase; padding: .5rem .8rem; }
+    .module-content { padding: .8rem; }
+
+    /* Buttons */
+    .button { display: inline-block; background: var(--dj-accent); color: #fff; border: none; border-radius: 4px;
+      padding: .4rem .8rem; font-size: 13px; cursor: pointer; text-decoration: none; }
+    .button:hover { background: var(--dj-accent-dark); }
+    .button.secondary { background: #eef2f5; color: #2b4b5a; }
+    .button.secondary:hover { background: #dfe7ec; }
+
+    /* Data source layout */
+    .ds-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0 0 .6rem; }
+    .ds-file input[type="file"] { font-size: 13px; }
+    details summary { cursor: pointer; color: #447e9b; font-size: 13px; }
+    #paste { width: 100%; margin: .4rem 0; font-size: 13px; }
+    .ds-paste-actions { display: flex; gap: .5rem; }
+
+    /* Toolbar attached to the table */
+    .table-toolbar { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+      background: #f8f8f8; border-bottom: 1px solid var(--dj-line); padding: .5rem .7rem; font-size: 13px; }
+    .table-toolbar .spacer { flex: 1 1 auto; }
+    .table-toolbar .num { width: 4rem; }
+    .table-toolbar input, .table-toolbar select { font-size: 13px; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid var(--dj-line); padding: 3px 5px; font-size: 13px; vertical-align: top; }
+    th { background: #eef3f6; color: #2b4b5a; font-weight: 600; text-align: left; white-space: nowrap; }
+    td input, td select, td textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+
+    .module-foot { padding: .6rem .8rem; }
+
+    /* Prominent submit row (very distinguished) */
+    .submit-row { background: #f8f8f8; border: 1px solid var(--dj-line); border-radius: 4px;
+      padding: .8rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: flex-end; gap: 1rem; }
+    .submit-row .hint { color: #777; font-size: 13px; margin-right: auto; }
+    .start-load { background: #2e7d32; color: #fff; border: none; border-radius: 5px;
+      padding: .75rem 1.8rem; font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+    .start-load:hover { background: #1b5e20; }
+
     .pane { display: none; }
     .pane.active { display: block; }
-    #status { margin-top: .5rem; font-weight: 600; }
+    #status { margin: .6rem 0; font-weight: 600; }
     .ok { color: #137333; } .err { color: #b00020; }
+
+    /* Row state highlights */
     tr.dup td { background: #fdecea; }
     tr.dup input[data-col="username"], tr.dup input[data-col="email"] { border: 1px solid #b00020; }
     tr.warn td { background: #fff4e5; }
     tr.patch td { background: #e7f3ff; }
-    /* Duplicate within the submitted list (takes visual precedence). */
     tr.dupinlist td { background: #ffe0b2; }
     tr.dupinlist input[data-col="username"], tr.dupinlist input[data-col="email"] { border: 1px solid #e65100; }
-    #dupwarn { margin: .5rem 0; color: #b00020; font-weight: 600; }
+    #dupwarn { margin: .2rem 0; color: #b00020; font-weight: 600; }
     #dupwarn div { margin: .15rem 0; }
     .actions-col { white-space: nowrap; }
+
+    /* Searchable queue widget */
     .queue-widget { min-width: 12rem; }
-    .q-list { max-height: 4.5rem; overflow-y: auto; border: 1px solid #ccc; margin-top: 2px; }
+    .q-list { max-height: 4.5rem; overflow-y: auto; border: 1px solid var(--dj-line); margin-top: 2px; }
     .q-list label { display: block; white-space: nowrap; cursor: pointer; padding: 0 2px; font-weight: normal; }
     .q-list input[type="checkbox"] { width: auto; margin-right: 4px; }
     .q-unmatched { color: #b00020; font-size: 12px; margin-top: 2px; }
   </style>
 </head>
 <body>
-  <h1>Rossum User Loader</h1>
+  <header class="dj-header">
+    <div class="dj-title">Rossum User Loader</div>
+    <nav class="dj-nav">
+      <button id="tab-load" class="active" onclick="showPane('load')">Load Users</button>
+      <button id="tab-existing" onclick="showPane('existing')">Existing Users</button>
+    </nav>
+  </header>
 
-  <div class="tabs">
-    <button id="tab-load" class="active" onclick="showPane('load')">Load Users</button>
-    <button id="tab-existing" onclick="showPane('existing')">Existing Users</button>
+  <div class="breadcrumbs">
+    <a href="#" onclick="showPane('load');return false;">Home</a>
+    &rsaquo; <span id="crumb-current">Load users</span>
   </div>
 
-  <section id="pane-load" class="pane active">
-    <div class="toolbar">
-      <a href="/template.csv">Download template</a>
-      <label>Load CSV: <input type="file" id="csvfile" accept=".csv,text/csv" onchange="loadCsvFile(this)"></label>
-      <label>Add <input id="nrows" type="number" value="1" min="1" style="width:4rem"> rows
-        <button onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
-      </label>
-      <label>Set all actions:
-        <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
-          <option value="">—</option>
-          <option value="create">Create</option>
-          <option value="patch">Patch</option>
-        </select>
-      </label>
-      <button onclick="removeAllRows()">Remove all rows</button>
-      <button onclick="clearGrid()">Clear</button>
-      <button onclick="startLoad()">Start Load</button>
-    </div>
+  <main class="content">
+    <section id="pane-load" class="pane active">
 
-    <details>
-      <summary>Paste rows (semicolon ";" separated; column order must match the template header)</summary>
-      <textarea id="paste" rows="4" placeholder="auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve"></textarea>
-      <button onclick="importPaste()">Import paste</button>
-      <button onclick="document.getElementById('paste').value=''">Clear paste</button>
-    </details>
+      <div class="module">
+        <h2>Data source</h2>
+        <div class="module-content">
+          <div class="ds-row">
+            <a class="button" href="/template.csv">⬇ Download CSV template</a>
+            <label class="ds-file">Load from CSV file:
+              <input type="file" id="csvfile" accept=".csv,text/csv" onchange="loadCsvFile(this)">
+            </label>
+          </div>
+          <details>
+            <summary>…or paste rows (semicolon ";" separated; column order must match the template header)</summary>
+            <textarea id="paste" rows="4" placeholder="auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve"></textarea>
+            <div class="ds-paste-actions">
+              <button class="button" onclick="importPaste()">Import paste</button>
+              <button class="button secondary" onclick="document.getElementById('paste').value=''">Clear paste</button>
+            </div>
+          </details>
+        </div>
+      </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
-          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th>action</th><th></th>
-        </tr>
-      </thead>
-      <tbody id="grid"></tbody>
-    </table>
+      <div class="module">
+        <h2>Users to process</h2>
+        <div class="table-toolbar">
+          <label>Add <input id="nrows" type="number" value="1" min="1" class="num"> row(s)</label>
+          <button class="button" onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
+          <label>Set all actions:
+            <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
+              <option value="">—</option>
+              <option value="create">Create</option>
+              <option value="patch">Patch</option>
+            </select>
+          </label>
+          <span class="spacer"></span>
+          <button class="button secondary" onclick="removeAllRows()">Remove all rows</button>
+          <button class="button secondary" onclick="clearGrid()">Clear</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
+                <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th>action</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="grid"></tbody>
+          </table>
+        </div>
+        <div class="module-foot">
+          <div id="dupwarn" style="display:none"></div>
+        </div>
+      </div>
 
-    <div id="dupwarn" style="display:none"></div>
-    <div id="status"></div>
-    <div id="results"></div>
-    <p><a id="loglink" href="/log.csv" style="display:none">Download log (CSV)</a></p>
-  </section>
+      <div class="submit-row">
+        <span class="hint">Review the rows above, then start the load. This writes to Rossum.</span>
+        <button class="start-load" onclick="confirmAndStart()">▶ Start Load</button>
+      </div>
 
-  <section id="pane-existing" class="pane">
-    <div class="toolbar">
-      <button onclick="copyAllExisting()">Copy all to load list (as patch)</button>
-      <span>Copied rows default to the <b>patch</b> action so you can update existing users.</span>
-    </div>
-    <table>
-      <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
-      <tbody>
-        {% for u in existing %}
-        <tr>
-            <td class="actions-col"><button type="button" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
-            <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
-            <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      <div id="status"></div>
+      <div id="results"></div>
+      <p><a id="loglink" class="button secondary" href="/log.csv" style="display:none">⬇ Download log (CSV)</a></p>
+    </section>
+
+    <section id="pane-existing" class="pane">
+      <div class="module">
+        <h2>Existing users</h2>
+        <div class="table-toolbar">
+          <button class="button" onclick="copyAllExisting()">Copy all to load list (as patch)</button>
+          <span class="hint">Copied rows default to the <b>patch</b> action so you can update existing users.</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
+            <tbody>
+              {% for u in existing %}
+              <tr>
+                  <td class="actions-col"><button type="button" class="button secondary" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
+                  <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+                  <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <script>
     const ROLES = {{ roles | tojson }};
@@ -108,10 +206,12 @@
     const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
 
     function showPane(name) {
-      document.getElementById('pane-load').classList.toggle('active', name === 'load');
-      document.getElementById('pane-existing').classList.toggle('active', name === 'existing');
-      document.getElementById('tab-load').classList.toggle('active', name === 'load');
-      document.getElementById('tab-existing').classList.toggle('active', name === 'existing');
+      const isLoad = name === 'load';
+      document.getElementById('pane-load').classList.toggle('active', isLoad);
+      document.getElementById('pane-existing').classList.toggle('active', !isLoad);
+      document.getElementById('tab-load').classList.toggle('active', isLoad);
+      document.getElementById('tab-existing').classList.toggle('active', !isLoad);
+      document.getElementById('crumb-current').textContent = isLoad ? 'Load users' : 'Existing users';
     }
 
     function roleSelect(value) {
@@ -252,7 +352,7 @@
       del.type = 'button';
       del.textContent = '✕';
       del.title = 'Remove this row';
-      del.onclick = () => tr.remove();
+      del.onclick = () => { tr.remove(); refreshDupWarning(); };
       tr.appendChild(td(del));
       document.getElementById('grid').appendChild(tr);
     }
@@ -440,6 +540,18 @@
       return rows;
     }
 
+    function confirmAndStart() {
+      const n = document.querySelectorAll('#grid tr').length;
+      if (n === 0) {
+        alert('No rows to load — add rows, load a CSV, or paste data first.');
+        return;
+      }
+      const ok = window.confirm(
+        'Start loading ' + n + ' row(s)?\n\n'
+        + 'This will CREATE and/or PATCH users in Rossum and cannot be undone. Continue?');
+      if (ok) startLoad();
+    }
+
     async function startLoad() {
       const rows = collectRows();
       const status = document.getElementById('status');
@@ -464,7 +576,7 @@
           '<span class="ok">patched ' + (s.patched || 0) + '</span>, skipped ' + s.skipped +
           ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
         renderResults(data.records);
-        document.getElementById('loglink').style.display = 'inline';
+        document.getElementById('loglink').style.display = 'inline-block';
       } catch (e) {
         status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
       }

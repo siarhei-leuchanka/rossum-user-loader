@@ -80,7 +80,7 @@ def test_log_csv_after_load(client):
 
 def test_index_contains_grid_and_controls(client):
     html = client.get("/?key=s3cr3t").data
-    for marker in (b'id="grid"', b'id="paste"', b"Clear", b"Download template", b"Start Load"):
+    for marker in (b'id="grid"', b'id="paste"', b"Clear", b"Download CSV template", b"Start Load"):
         assert marker in html
     assert b"annotator" in html
     assert b"Q1" in html
@@ -192,3 +192,16 @@ def test_queue_widget_resolves_by_name_or_id_and_flags_unmatched(client):
     assert b"not found in this org" in html                     # unmatched feedback
     assert b".toLowerCase() === tok.toLowerCase()" in html      # name resolution
     assert b"q-unmatched" in html
+
+
+def test_django_style_chrome_and_confirm(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"dj-header" in html          # dark header bar with nav
+    assert b"breadcrumbs" in html        # Django-style breadcrumbs
+    assert b"crumb-current" in html
+    assert b'class="module"' in html     # card modules
+    assert b"Data source" in html        # template + file load grouped together
+    assert b"table-toolbar" in html      # controls attached to the table
+    assert b"confirmAndStart(" in html   # Start Load re-asks
+    assert b"window.confirm(" in html
+    assert b"start-load" in html         # distinguished submit button
