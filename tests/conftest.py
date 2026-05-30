@@ -13,6 +13,7 @@ class FakeGroup:
 class FakeQueue:
     id: int
     url: str
+    name: str = ""
 
 
 class FakeHttpClient:
