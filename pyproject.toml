@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rossum-user-loader"
+version = "0.1.0"
+description = "Bulk-load users into Rossum from a spreadsheet (CLI; Flask web UI planned)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Sergey Levchenko", email = "sergey.levchenko@rossum.ai" }]
+keywords = ["rossum", "users", "bulk", "loader", "cli"]
+dependencies = [
+    "rossum-api>=3.15.0",
+    "openpyxl>=3.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/siarhei-leuchanka/rossum-user-loader"
+
+[project.scripts]
+rossum-user-loader = "rossum_user_loader.cli:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rossum_user_loader"]
