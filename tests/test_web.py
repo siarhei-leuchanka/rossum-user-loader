@@ -185,3 +185,10 @@ def test_queue_widget_is_searchable_multiselect(client):
     assert b"q-search" in html          # filter input
     assert b"search queues" in html     # placeholder
     assert b'type="checkbox"' in html   # checkboxes keep multi-select
+
+
+def test_queue_widget_resolves_by_name_or_id_and_flags_unmatched(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"not found in this org" in html                     # unmatched feedback
+    assert b".toLowerCase() === tok.toLowerCase()" in html      # name resolution
+    assert b"q-unmatched" in html

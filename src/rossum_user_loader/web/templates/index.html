@@ -29,6 +29,7 @@
     .q-list { max-height: 4.5rem; overflow-y: auto; border: 1px solid #ccc; margin-top: 2px; }
     .q-list label { display: block; white-space: nowrap; cursor: pointer; padding: 0 2px; font-weight: normal; }
     .q-list input[type="checkbox"] { width: auto; margin-right: 4px; }
+    .q-unmatched { color: #b00020; font-size: 12px; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -129,7 +130,21 @@
       // Searchable multi-select: a filter box narrows the checkbox list by queue
       // name or id; checkboxes keep multi-selection. Selected ids are read on
       // submit (collectRows) and stored "one id per line".
-      const wanted = new Set((ids || '').split(/[\n, ]+/).filter(Boolean));
+      //
+      // Incoming tokens (from CSV/paste, newline- or comma-separated) may be
+      // queue IDs OR queue NAMES (case-insensitive). Names can contain spaces,
+      // so we do NOT split on spaces. Tokens that match no org queue are shown
+      // so the user knows why a queue wasn't assigned.
+      const tokens = (ids || '').split(/[\n,]+/).map(t => t.trim()).filter(Boolean);
+      const wantedIds = new Set();
+      const unmatched = [];
+      tokens.forEach(tok => {
+        const q = QUEUES.find(
+          x => String(x.id) === tok || (x.name || '').toLowerCase() === tok.toLowerCase()
+        );
+        if (q) wantedIds.add(String(q.id)); else unmatched.push(tok);
+      });
+
       const wrap = document.createElement('div');
       wrap.className = 'queue-widget';
       wrap.dataset.col = 'queue_ids';
@@ -147,7 +162,7 @@
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = String(q.id);
-        if (wanted.has(String(q.id))) cb.checked = true;
+        if (wantedIds.has(String(q.id))) cb.checked = true;
         label.appendChild(cb);
         label.appendChild(document.createTextNode(' ' + q.name + ' (' + q.id + ')'));
         list.appendChild(label);
@@ -162,6 +177,12 @@
 
       wrap.appendChild(search);
       wrap.appendChild(list);
+      if (unmatched.length) {
+        const note = document.createElement('div');
+        note.className = 'q-unmatched';
+        note.textContent = '⚠ not found in this org: ' + unmatched.join(', ');
+        wrap.appendChild(note);
+      }
       return wrap;
     }
 
