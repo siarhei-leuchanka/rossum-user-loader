@@ -192,7 +192,7 @@ async def run_load(
             logger.add("Error-check user data entry. No required fields.", **user_data)
             continue
 
-        if user_data["username"].lower() in existing_usernames:
+        if user_data["username"].lower().strip() in existing_usernames:
             _emit(on_result, "skip", f"User Exists - {user_data['username']}")
             logger.add("Skipped-User Exists", **user_data)
             continue

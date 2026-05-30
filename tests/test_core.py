@@ -98,3 +98,18 @@ async def test_run_load_records_creation_failure_and_continues():
     assert [u["username"] for u in client.created] == ["ok"]
     notes = [m["Messages"] for m in logger.get()]
     assert any("Error - user not created" in n for n in notes)
+
+
+async def test_run_load_invokes_on_result_callback():
+    events = []
+    rows = [_row(email="new@x.io", username="newuser", auth_type="password")]
+    client = FakeClient()
+
+    await core.run_load(
+        client, rows, "https://x/org/1", GROUPS, QUEUES, [],
+        on_result=lambda level, message: events.append((level, message)),
+    )
+
+    levels = [level for level, _ in events]
+    assert "info" in levels   # "Creating User"
+    assert "ok" in levels     # "User created" and "Password reset"
