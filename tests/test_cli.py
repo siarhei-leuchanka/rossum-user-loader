@@ -17,3 +17,20 @@ def test_export_log_writes_csv_next_to_input(tmp_path):
     cli._export_log(logger, str(input_file))
     written = list(tmp_path.glob("user_load_*.csv"))
     assert len(written) == 1
+
+
+def test_gather_connection_builds_organization(monkeypatch):
+    answers = iter(["TOKEN", "https://x.rossum.app/api/v1", "42"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "")  # force prompt path
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    conn = cli.gather_connection()
+    assert conn["token"] == "TOKEN"
+    assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
+
+
+def test_run_web_subcommand_invokes_launcher(monkeypatch):
+    called = {}
+    from rossum_user_loader.web import launcher
+    monkeypatch.setattr(launcher, "launch", lambda: called.setdefault("launched", True))
+    cli.run(["web"])
+    assert called.get("launched")

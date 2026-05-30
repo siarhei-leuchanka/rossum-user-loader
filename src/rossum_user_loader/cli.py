@@ -25,8 +25,8 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 
-def gather_config() -> dict:
-    """Collect run configuration from prompts (token may come from env)."""
+def gather_connection() -> dict:
+    """Collect Rossum connection details (token may come from env)."""
     token = os.environ.get("ROSSUM_API_TOKEN") or input(
         "Please enter your Rossum API token: "
     )
@@ -35,16 +35,19 @@ def gather_config() -> dict:
         "e.g. https://custom-domain.rossum.app/api/v1: "
     ).strip()
     organization_id = input("What is the target Organization ID: ").strip()
-    file_path = input("Provide a path to load file: ").strip("'").strip()
-    sheet_name = input("Provide a sheet name to load file: ").strip()
-
     return {
         "token": token,
         "domain": domain,
         "organization": f"{domain}/organizations/{organization_id}".strip(),
-        "file_path": file_path,
-        "sheet_name": sheet_name,
     }
+
+
+def gather_config() -> dict:
+    """Connection details plus the spreadsheet path/sheet for the CLI loader."""
+    conn = gather_connection()
+    file_path = input("Provide a path to load file: ").strip("'").strip()
+    sheet_name = input("Provide a sheet name to load file: ").strip()
+    return {**conn, "file_path": file_path, "sheet_name": sheet_name}
 
 
 async def load_users(config: dict) -> None:
@@ -94,16 +97,23 @@ def _export_log(logger: core.Logger, input_file_path: str) -> None:
 def run(argv: list[str] | None = None) -> None:
     """Console-script entry point.
 
-    Configuration is collected interactively; ``--help``/``--version`` return
-    immediately without prompting so the command is well-behaved in scripts and
-    package smoke tests.
+    With no subcommand, runs the interactive spreadsheet loader. ``web`` starts
+    the local web UI. ``--help``/``--version`` return without prompting.
     """
     parser = argparse.ArgumentParser(
         prog="rossum-user-loader",
         description="Bulk-load users into Rossum from a spreadsheet.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.parse_args(argv)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("web", help="Launch the local web UI for preparing the user batch")
+    args = parser.parse_args(argv)
+
+    if args.command == "web":
+        from rossum_user_loader.web import launcher
+
+        launcher.launch()
+        return
 
     config = gather_config()
     asyncio.run(load_users(config))
