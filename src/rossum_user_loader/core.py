@@ -22,11 +22,25 @@ SUPPORTED_COLUMNS = {
     "email": "",
     "first_name": "",
     "last_name": "",
+    "username": "",
     "oidc_id": "",
     "role": "",
     "queue_ids": "",
     "can_approve": "",
 }
+
+# Columns that MUST be present in an input file. `username` is optional (it
+# defaults to the email), so legacy templates without it still load.
+REQUIRED_COLUMNS = (
+    "auth_type",
+    "email",
+    "first_name",
+    "last_name",
+    "oidc_id",
+    "role",
+    "queue_ids",
+    "can_approve",
+)
 
 
 class _ResourceHotFix(Enum):
@@ -48,7 +62,7 @@ def prepare_user_data(row: dict, organization: str, org_groups: list, org_queues
 
     payload["oidc_id"] = row.get("oidc_id") or row.get("email", "")
     payload["auth_type"] = row.get("auth_type", "")
-    payload["username"] = row.get("email", "")
+    payload["username"] = row.get("username") or row.get("email", "")
     payload["email"] = row.get("email", "")
     payload["first_name"] = row.get("first_name", "")
     payload["last_name"] = row.get("last_name", "")
