@@ -31,6 +31,7 @@
       <label>Add <input id="nrows" type="number" value="5" min="1" style="width:4rem"> rows
         <button onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
       </label>
+      <button onclick="removeAllRows()">Remove all rows</button>
       <button onclick="clearGrid()">Clear</button>
       <button onclick="startLoad()">Start Load</button>
     </div>
@@ -46,7 +47,7 @@
       <thead>
         <tr>
           <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
-          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th>
+          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th></th>
         </tr>
       </thead>
       <tbody id="grid"></tbody>
@@ -145,11 +146,18 @@
       tr.appendChild(td(roleSelect(vals.role || (ROLES[0] && ROLES[0].name) || '')));
       tr.appendChild(td(queueSelect(vals.queue_ids || '')));
       tr.appendChild(td(approveSelect(vals.can_approve || 'no')));
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '✕';
+      del.title = 'Remove this row';
+      del.onclick = () => tr.remove();
+      tr.appendChild(td(del));
       document.getElementById('grid').appendChild(tr);
     }
 
     function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
     function addRows(n) { for (let i = 0; i < n; i++) addRow(); }
+    function removeAllRows() { document.getElementById('grid').innerHTML = ''; }
     function clearGrid() {
       document.getElementById('grid').innerHTML = '';
       document.getElementById('results').innerHTML = '';
@@ -229,8 +237,7 @@
       });
     }
 
-    // Start with a few empty rows.
-    addRows(5);
+    // Start empty — rows are added only when the user presses "Add".
   </script>
 </body>
 </html>
