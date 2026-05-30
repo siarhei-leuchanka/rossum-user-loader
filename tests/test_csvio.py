@@ -55,3 +55,12 @@ def test_template_path_points_to_existing_csv():
     with open(path, newline="", encoding="utf-8-sig") as fh:
         header = next(csv.reader(fh, delimiter=csvio.DELIMITER))
     assert "username" in header
+
+
+def test_write_log_neutralizes_csv_injection(tmp_path):
+    out = csvio.write_log(
+        str(tmp_path / "log"),
+        [{"Messages": "=1+1", "email": "+1", "x": "-2", "y": "@cmd"}],
+    )
+    raw = open(out, encoding="utf-8").read()
+    assert "'=1+1" in raw and "'+1" in raw and "'-2" in raw and "'@cmd" in raw

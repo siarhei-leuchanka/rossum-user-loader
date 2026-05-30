@@ -15,7 +15,7 @@ import os
 from rossum_api import AsyncRossumAPIClient
 from rossum_api.dtos import Token
 
-from rossum_user_loader import __version__, core, csvio, excel
+from rossum_user_loader import __version__, core, csvio, excel, validation
 
 # ANSI colors used in console output.
 RED = "\033[91m"
@@ -25,20 +25,37 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 
+def _prompt_valid(label: str, validator, env_value=None):
+    """Prompt until ``validator`` accepts the input. If ``env_value`` is set,
+    validate it once (no loop) so a bad env var fails fast with a clear error."""
+    if env_value:
+        return validator(env_value)
+    while True:
+        try:
+            return validator(input(label))
+        except validation.ValidationError as exc:
+            print(f"{RED}{exc}{RESET}")
+
+
 def gather_connection() -> dict:
-    """Collect Rossum connection details (token may come from env)."""
-    token = os.environ.get("ROSSUM_API_TOKEN") or input(
-        "Please enter your Rossum API token: "
+    """Collect and validate Rossum connection details (token may come from env)."""
+    token = _prompt_valid(
+        "Please enter your Rossum API token: ",
+        validation.validate_token,
+        env_value=os.environ.get("ROSSUM_API_TOKEN"),
     )
-    domain = input(
+    domain = _prompt_valid(
         "Please enter Rossum domain url with /v1 in the end "
-        "e.g. https://custom-domain.rossum.app/api/v1: "
-    ).strip()
-    organization_id = input("What is the target Organization ID: ").strip()
+        "e.g. https://custom-domain.rossum.app/api/v1: ",
+        validation.validate_domain,
+    )
+    organization_id = _prompt_valid(
+        "What is the target Organization ID: ", validation.validate_org_id
+    )
     return {
         "token": token,
         "domain": domain,
-        "organization": f"{domain}/organizations/{organization_id}".strip(),
+        "organization": f"{domain}/organizations/{organization_id}",
     }
 
 

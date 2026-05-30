@@ -205,3 +205,30 @@ def test_django_style_chrome_and_confirm(client):
     assert b"confirmAndStart(" in html   # Start Load re-asks
     assert b"window.confirm(" in html
     assert b"start-load" in html         # distinguished submit button
+
+
+def test_load_rejects_too_many_rows(client):
+    client.get("/?key=s3cr3t")
+    big = [{"username": "u%d" % i} for i in range(1001)]
+    resp = client.post("/load", json={"rows": big})
+    assert resp.status_code == 400
+    assert "Too many rows" in resp.get_json()["error"]
+
+
+def test_load_rejects_bad_shape(client):
+    client.get("/?key=s3cr3t")
+    assert client.post("/load", json={"rows": "notalist"}).status_code == 400
+
+
+def test_load_rejects_oversized_field(client):
+    client.get("/?key=s3cr3t")
+    resp = client.post("/load", json={"rows": [{"email": "x" * 2000}]})
+    assert resp.status_code == 400
+
+
+def test_index_hardening_markers(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b'max="100"' in html                      # add-rows capped in the UI
+    assert b"MAX_ADD_ROWS" in html
+    assert b"MAX_CSV_BYTES" in html                  # csv upload size cap
+    assert b"Please choose a .csv file" in html      # csv mime/extension check

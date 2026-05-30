@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, Response, jsonify, render_template, request, send_file, session
 
-from rossum_user_loader import csvio
+from rossum_user_loader import csvio, validation
 
 # Only loopback hosts are accepted, so a remote name that resolves to 127.0.0.1
 # (DNS-rebinding) is rejected by the Host check.
@@ -80,6 +80,8 @@ def create_app(state: AppState) -> Flask:
     app.secret_key = state.secret
     # Local session key gating browser access for this run. NOT a Rossum token.
     app.config["SESSION_KEY"] = state.secret
+    # Cap request body size so an oversized POST can't exhaust memory (DoS guard).
+    app.config["MAX_CONTENT_LENGTH"] = validation.MAX_REQUEST_BYTES
 
     @app.before_request
     def _gate():
@@ -132,7 +134,12 @@ def create_app(state: AppState) -> Flask:
     @app.post("/load")
     def load():
         payload = request.get_json(force=True, silent=True) or {}
-        rows = payload.get("rows", [])
+        # Explicit server-side validation: never trust the front end. Bad shape,
+        # oversized fields, or too many rows are rejected before any API call.
+        try:
+            rows = validation.validate_rows(payload.get("rows", []))
+        except validation.ValidationError as exc:
+            return jsonify({"error": str(exc)}), 400
         try:
             records = state.loader(rows)
         except Exception as exc:  # noqa: BLE001

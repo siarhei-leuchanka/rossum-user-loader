@@ -34,3 +34,19 @@ def test_run_web_subcommand_invokes_launcher(monkeypatch):
     monkeypatch.setattr(launcher, "launch", lambda: called.setdefault("launched", True))
     cli.run(["web"])
     assert called.get("launched")
+
+
+def test_gather_connection_reprompts_on_bad_org_id(monkeypatch):
+    answers = iter(["TOKEN", "https://x.rossum.app/api/v1", "abc", "42"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    conn = cli.gather_connection()
+    assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
+
+
+def test_gather_connection_reprompts_on_bad_url(monkeypatch):
+    answers = iter(["TOKEN", "ftp://nope", "https://x.rossum.app/api/v1", "42"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    conn = cli.gather_connection()
+    assert conn["domain"] == "https://x.rossum.app/api/v1"

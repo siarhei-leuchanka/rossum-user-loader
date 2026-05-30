@@ -19,6 +19,15 @@ def _stringify(value) -> str:
     return "" if value is None else str(value)
 
 
+# Leading chars a spreadsheet may interpret as a formula. Prefixing with a
+# single quote neutralizes CSV/formula injection when a log is opened in Excel.
+_CSV_INJECTION_PREFIX = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(text: str) -> str:
+    return "'" + text if text and text[0] in _CSV_INJECTION_PREFIX else text
+
+
 def write_log(path: str, records: list[dict]) -> str:
     """Write log records to ``<path>.csv`` and return the final path."""
     out_path = f"{path}.csv"
@@ -33,7 +42,7 @@ def write_log(path: str, records: list[dict]) -> str:
         writer = csv.writer(fh, delimiter=DELIMITER)
         writer.writerow(columns)
         for record in records:
-            writer.writerow([_stringify(record.get(col, "")) for col in columns])
+            writer.writerow([_csv_safe(_stringify(record.get(col, ""))) for col in columns])
 
     return out_path
 

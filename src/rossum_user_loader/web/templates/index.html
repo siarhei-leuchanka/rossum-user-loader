@@ -136,7 +136,7 @@
       <div class="module">
         <h2>Users to process</h2>
         <div class="table-toolbar">
-          <label>Add <input id="nrows" type="number" value="1" min="1" class="num"> row(s)</label>
+          <label>Add <input id="nrows" type="number" value="1" min="1" max="100" class="num"> row(s) <small>(max 100)</small></label>
           <button class="button" onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
           <label>Set all actions:
             <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
@@ -204,6 +204,10 @@
     const EXISTING = {{ existing | tojson }};
     const EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
     const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
+    // Client-side limits (mirror server-side validation.py; server is authoritative).
+    const MAX_ADD_ROWS = 100;
+    const MAX_ROWS = 1000;
+    const MAX_CSV_BYTES = 2 * 1024 * 1024;  // 2 MB
 
     function showPane(name) {
       const isLoad = name === 'load';
@@ -358,7 +362,15 @@
     }
 
     function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
-    function addRows(n) { for (let i = 0; i < n; i++) addRow(); refreshDupWarning(); }
+    function gridCount() { return document.querySelectorAll('#grid tr').length; }
+    function addRows(n) {
+      // Guard against non-numeric / scripted / out-of-range input.
+      n = Math.floor(Number(n));
+      if (!Number.isFinite(n) || n < 1) n = 1;
+      if (n > MAX_ADD_ROWS) n = MAX_ADD_ROWS;
+      for (let i = 0; i < n && gridCount() < MAX_ROWS; i++) addRow();
+      refreshDupWarning();
+    }
     function clearGrid() {
       document.getElementById('grid').innerHTML = '';
       document.getElementById('results').innerHTML = '';
@@ -497,12 +509,15 @@
       let start = 0;
       const first = parsed[0].map(c => c.trim().toLowerCase());
       if (first.includes('email') && first.includes('auth_type')) start = 1;
+      let capped = false;
       for (let i = start; i < parsed.length; i++) {
+        if (gridCount() >= MAX_ROWS) { capped = true; break; }
         const cells = parsed[i];
         const vals = {};
         HEADER.forEach((col, j) => { vals[col] = (cells[j] || '').trim(); });
         addRow(vals);
       }
+      if (capped) alert('Row limit reached (' + MAX_ROWS + '). Remaining rows were not imported.');
       refreshDupWarning();
     }
 
@@ -515,6 +530,14 @@
     function loadCsvFile(input) {
       const file = input.files && input.files[0];
       if (!file) return;
+      // Only accept CSV: require a .csv name and a CSV-ish (or empty/text) MIME.
+      const isCsvName = /\.csv$/i.test(file.name);
+      const okType = file.type === '' || /csv|excel|text\/plain/i.test(file.type);
+      if (!isCsvName || !okType) { alert('Please choose a .csv file.'); input.value = ''; return; }
+      if (file.size > MAX_CSV_BYTES) {
+        alert('CSV file is too large (max ' + (MAX_CSV_BYTES / 1048576) + ' MB).');
+        input.value = ''; return;
+      }
       const reader = new FileReader();
       reader.onload = () => { importDelimited(String(reader.result)); input.value = ''; };
       reader.readAsText(file);
