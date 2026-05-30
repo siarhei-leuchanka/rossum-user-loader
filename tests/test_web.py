@@ -145,3 +145,21 @@ def test_load_summary_includes_patched_via_stub(client):
     resp = client.post("/load", json={"rows": [{"username": "x", "email": "x@y.z"}]})
     data = resp.get_json()
     assert "patched" in data["summary"]
+
+
+def test_non_loopback_host_is_rejected(client):
+    # Even with a valid key, a non-loopback Host (DNS-rebinding) is refused.
+    resp = client.get("/?key=s3cr3t", headers={"Host": "evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_cross_site_origin_post_is_rejected(client):
+    client.get("/?key=s3cr3t")  # authenticate
+    resp = client.post("/load", json={"rows": []}, headers={"Origin": "http://evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_loopback_origin_post_is_allowed(client):
+    client.get("/?key=s3cr3t")  # authenticate
+    resp = client.post("/load", json={"rows": []}, headers={"Origin": "http://127.0.0.1:5000"})
+    assert resp.status_code == 200

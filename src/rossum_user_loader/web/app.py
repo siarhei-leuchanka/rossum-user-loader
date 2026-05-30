@@ -13,10 +13,24 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from typing import Callable
+from urllib.parse import urlparse
 
 from flask import Flask, Response, jsonify, render_template, request, send_file, session
 
 from rossum_user_loader import csvio
+
+# Only loopback hosts are accepted, so a remote name that resolves to 127.0.0.1
+# (DNS-rebinding) is rejected by the Host check.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _hostname(value: str) -> str:
+    """Extract the hostname from a Host header ('host:port') or an Origin URL."""
+    if not value:
+        return ""
+    if "://" in value:
+        return urlparse(value).hostname or ""
+    return urlparse("//" + value).hostname or ""
 
 
 @dataclass
@@ -71,6 +85,21 @@ def create_app(state: AppState) -> Flask:
     def _gate():
         if request.endpoint == "static":
             return None
+
+        # Defense in depth, applied to every request:
+        # 1) Host must be loopback — rejects DNS-rebinding (a remote name
+        #    pointed at 127.0.0.1 arrives with a non-loopback Host header).
+        if _hostname(request.host or "") not in LOOPBACK_HOSTS:
+            return ("Forbidden", 403)
+        # 2) State-changing requests must not carry a cross-site Origin — rejects
+        #    CSRF from other pages in the same browser.
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("Origin")
+            if origin and _hostname(origin) not in LOOPBACK_HOSTS:
+                return ("Forbidden", 403)
+
+        # 3) Per-run session key: opening the printed URL once authenticates the
+        #    session (the key is then carried by the cookie, not the URL).
         if session.get("authed"):
             return None
         if (
