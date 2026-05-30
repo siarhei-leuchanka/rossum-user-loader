@@ -32,3 +32,31 @@ def test_username_used_when_present():
 def test_required_columns_excludes_username():
     assert "username" not in core.REQUIRED_COLUMNS
     assert "email" in core.REQUIRED_COLUMNS
+
+
+class _FakeUser:
+    def __init__(self, username, email):
+        self.id = 1
+        self.username = username
+        self.email = email
+        self.first_name = "F"
+        self.last_name = "L"
+        self.groups = []
+        self.queues = []
+        self.deleted = False
+
+
+class _UserClient:
+    def __init__(self, users):
+        self._users = users
+
+    async def list_users(self):
+        for u in self._users:
+            yield u
+
+
+async def test_list_active_users_has_username_and_email():
+    client = _UserClient([_FakeUser("jdoe", "j@x.io")])
+    users = await core.list_active_users(client)
+    assert users[0]["username"] == "jdoe"
+    assert users[0]["email"] == "j@x.io"

@@ -115,7 +115,8 @@ async def list_active_users(client: AsyncRossumAPIClient) -> list[dict]:
             actual_users.append(
                 {
                     "id": user.id,
-                    "email": user.username,
+                    "username": user.username,
+                    "email": user.email,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "groups": user.groups,
