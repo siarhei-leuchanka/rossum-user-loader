@@ -43,3 +43,15 @@ def test_read_rows_raises_on_missing_required_column(tmp_path):
     _write_csv(p, ["email"], [["a@x.io"]])
     with pytest.raises(RuntimeError, match="Missing required column"):
         csvio.read_rows(str(p), ("email", "role"))
+
+
+import os
+
+
+def test_template_path_points_to_existing_csv():
+    path = csvio.template_path()
+    assert path.endswith("user_load_template.csv")
+    assert os.path.exists(path)
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        header = next(csv.reader(fh))
+    assert "username" in header

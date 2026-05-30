@@ -7,6 +7,7 @@ legacy xlsx reader stays in ``excel.py`` for the current CLI path.
 from __future__ import annotations
 
 import csv
+import os
 
 
 def _stringify(value) -> str:
@@ -50,3 +51,9 @@ def read_rows(file_path: str, required_columns) -> list[dict]:
                 {k: ("" if v is None else str(v).strip()) for k, v in raw.items()}
             )
     return rows
+
+
+def template_path() -> str:
+    """Absolute path to the bundled CSV user-load template."""
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(here, "templates", "user_load_template.csv")
