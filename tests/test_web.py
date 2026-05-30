@@ -93,3 +93,17 @@ def test_load_returns_500_when_loader_raises():
     resp = c.post("/load", json={"rows": [{"username": "x"}]})
     assert resp.status_code == 500
     assert "kaboom" in resp.get_json()["error"]
+
+
+def test_summary_total_reconciles_with_buckets():
+    # A password user emits "User created" + "Password reset"; total must not
+    # double-count the reset record.
+    records = [
+        {"Messages": "User created - {}"},
+        {"Messages": "Password reset - {}"},
+        {"Messages": "Skipped-User Exists"},
+        {"Messages": "Error - user not created - boom"},
+    ]
+    from rossum_user_loader.web.app import _summarize
+    s = _summarize(records)
+    assert s == {"total": 3, "created": 1, "skipped": 1, "errors": 1}

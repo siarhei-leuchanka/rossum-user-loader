@@ -177,7 +177,7 @@ async def run_load(
     create (any template example row is dropped before calling).
     """
     logger = Logger()
-    existing_usernames = {u["username"].lower().strip() for u in existing_users}
+    existing_usernames = {(u.get("username") or "").lower().strip() for u in existing_users}
 
     for row in rows:
         try:

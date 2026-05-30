@@ -33,11 +33,22 @@ def _summarize(records: list[dict]) -> dict:
     def msg(r):
         return str(r.get("Messages", ""))
 
+    created = sum(1 for r in records if msg(r).startswith("User created"))
+    skipped = sum(1 for r in records if "Skipped" in msg(r) or "Skipping" in msg(r))
+    # Exclude password-reset bookkeeping (success OR failure) from the headline
+    # error count — the user itself was already created/counted.
+    errors = sum(
+        1
+        for r in records
+        if msg(r).startswith("Error") and "password reset" not in msg(r).lower()
+    )
+    # total reconciles with the three buckets (password-reset records are
+    # bookkeeping, still present in the full records list and the CSV log).
     return {
-        "total": len(records),
-        "created": sum(1 for r in records if msg(r).startswith("User created")),
-        "skipped": sum(1 for r in records if "Skipped" in msg(r) or "Skipping" in msg(r)),
-        "errors": sum(1 for r in records if msg(r).startswith("Error")),
+        "total": created + skipped + errors,
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
     }
 
 
