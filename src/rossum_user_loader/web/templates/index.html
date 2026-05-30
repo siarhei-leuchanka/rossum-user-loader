@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rossum User Loader</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1.5rem; }
+    .tabs button { padding: .4rem .8rem; cursor: pointer; }
+    .tabs button.active { font-weight: 700; }
+    table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+    th, td { border: 1px solid #ccc; padding: 2px 4px; font-size: 13px; }
+    input, select, textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+    .toolbar { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+    .pane { display: none; }
+    .pane.active { display: block; }
+    #status { margin-top: .5rem; font-weight: 600; }
+    .ok { color: #137333; } .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Rossum User Loader</h1>
+
+  <div class="tabs">
+    <button id="tab-load" class="active" onclick="showPane('load')">Load Users</button>
+    <button id="tab-existing" onclick="showPane('existing')">Existing Users</button>
+  </div>
+
+  <section id="pane-load" class="pane active">
+    <div class="toolbar">
+      <a href="/template.csv">Download template</a>
+      <label>Add <input id="nrows" type="number" value="5" min="1" style="width:4rem"> rows
+        <button onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
+      </label>
+      <button onclick="clearGrid()">Clear</button>
+      <button onclick="startLoad()">Start Load</button>
+    </div>
+
+    <details>
+      <summary>Paste from Excel (tab-separated; column order must match the header)</summary>
+      <textarea id="paste" rows="4" placeholder="paste rows here"></textarea>
+      <button onclick="importPaste()">Import paste</button>
+      <button onclick="document.getElementById('paste').value=''">Clear paste</button>
+    </details>
+
+    <table>
+      <thead>
+        <tr>
+          <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
+          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th>
+        </tr>
+      </thead>
+      <tbody id="grid"></tbody>
+    </table>
+
+    <div id="status"></div>
+    <div id="results"></div>
+    <p><a id="loglink" href="/log.csv" style="display:none">Download log (CSV)</a></p>
+  </section>
+
+  <section id="pane-existing" class="pane">
+    <table>
+      <thead><tr><th>username</th><th>email</th><th>first_name</th><th>last_name</th></tr></thead>
+      <tbody>
+        {% for u in existing %}
+        <tr><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <script>
+    const ROLES = {{ roles | tojson }};
+    const QUEUES = {{ queues | tojson }};
+    const EXISTING_USERNAMES = new Set({{ existing | map(attribute='username') | list | tojson }}.map(u => (u||'').toLowerCase()));
+    const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
+
+    function showPane(name) {
+      document.getElementById('pane-load').classList.toggle('active', name === 'load');
+      document.getElementById('pane-existing').classList.toggle('active', name === 'existing');
+      document.getElementById('tab-load').classList.toggle('active', name === 'load');
+      document.getElementById('tab-existing').classList.toggle('active', name === 'existing');
+    }
+
+    function roleSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'role';
+      ROLES.forEach(r => {
+        const o = document.createElement('option');
+        o.value = r.name; o.textContent = r.name;
+        if (r.name === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function queueSelect(ids) {
+      // Multi-select showing queue NAMES; value is the queue id. Selecting
+      // multiple follows the "one id per line" storage convention on submit.
+      const s = document.createElement('select');
+      s.multiple = true; s.size = 3; s.dataset.col = 'queue_ids';
+      const wanted = new Set((ids || '').split(/[\n, ]+/).filter(Boolean));
+      QUEUES.forEach(q => {
+        const o = document.createElement('option');
+        o.value = String(q.id); o.textContent = q.name + ' (' + q.id + ')';
+        if (wanted.has(String(q.id))) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function approveSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'can_approve';
+      ['no', 'yes'].forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function authSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'auth_type';
+      ['password', 'sso'].forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function addRow(vals) {
+      vals = vals || {};
+      const tr = document.createElement('tr');
+      tr.appendChild(td(authSelect(vals.auth_type || 'password')));
+      TEXT_COLS.forEach(col => {
+        const inp = document.createElement('input');
+        inp.dataset.col = col; inp.value = vals[col] || '';
+        const cell = td(inp);
+        tr.appendChild(cell);
+      });
+      tr.appendChild(td(roleSelect(vals.role || (ROLES[0] && ROLES[0].name) || '')));
+      tr.appendChild(td(queueSelect(vals.queue_ids || '')));
+      tr.appendChild(td(approveSelect(vals.can_approve || 'no')));
+      document.getElementById('grid').appendChild(tr);
+    }
+
+    function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
+    function addRows(n) { for (let i = 0; i < n; i++) addRow(); }
+    function clearGrid() {
+      document.getElementById('grid').innerHTML = '';
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('status').textContent = '';
+      document.getElementById('loglink').style.display = 'none';
+    }
+
+    const HEADER = ["auth_type","email","first_name","last_name","username","oidc_id","role","queue_ids","can_approve"];
+
+    function importPaste() {
+      const text = document.getElementById('paste').value.trim();
+      if (!text) return;
+      text.split(/\r?\n/).forEach(line => {
+        const cells = line.split('\t');
+        const vals = {};
+        HEADER.forEach((col, i) => { vals[col] = (cells[i] || '').trim(); });
+        addRow(vals);
+      });
+    }
+
+    function collectRows() {
+      const rows = [];
+      document.querySelectorAll('#grid tr').forEach(tr => {
+        const row = {};
+        tr.querySelectorAll('[data-col]').forEach(el => {
+          if (el.dataset.col === 'queue_ids' && el.multiple) {
+            row.queue_ids = Array.from(el.selectedOptions).map(o => o.value).join('\n');
+          } else {
+            row[el.dataset.col] = el.value.trim();
+          }
+        });
+        rows.push(row);
+      });
+      return rows;
+    }
+
+    async function startLoad() {
+      const rows = collectRows();
+      const status = document.getElementById('status');
+      status.textContent = 'Loading ' + rows.length + ' user(s)...';
+      try {
+        const resp = await fetch('/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows })
+        });
+        const data = await resp.json();
+        const s = data.summary;
+        status.innerHTML = '<span class="ok">Created ' + s.created + '</span>, skipped ' +
+          s.skipped + ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
+        renderResults(data.records);
+        document.getElementById('loglink').style.display = 'inline';
+      } catch (e) {
+        status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
+      }
+    }
+
+    function renderResults(records) {
+      const div = document.getElementById('results');
+      const lines = records.map(r => {
+        const who = r.username || r.email || '';
+        return '<div>' + (r.Messages || '') + (who ? ' — ' + who : '') + '</div>';
+      });
+      div.innerHTML = '<h3>Results</h3>' + lines.join('');
+    }
+
+    // Start with a few empty rows.
+    addRows(5);
+  </script>
+</body>
+</html>
