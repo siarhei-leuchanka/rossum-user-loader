@@ -32,3 +32,21 @@ def write_log(path: str, records: list[dict]) -> str:
             writer.writerow([_stringify(record.get(col, "")) for col in columns])
 
     return out_path
+
+
+def read_rows(file_path: str, required_columns) -> list[dict]:
+    """Read a CSV into a list of ``{column: str}`` dicts (values stripped)."""
+    with open(file_path, newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        columns = reader.fieldnames or []
+        missing = [c for c in required_columns if c not in columns]
+        if missing:
+            raise RuntimeError(
+                f"Missing required column(s): {missing}. Expected: {sorted(required_columns)}"
+            )
+        rows = []
+        for raw in reader:
+            rows.append(
+                {k: ("" if v is None else str(v).strip()) for k, v in raw.items()}
+            )
+    return rows

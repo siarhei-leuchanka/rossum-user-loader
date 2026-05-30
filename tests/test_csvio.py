@@ -18,3 +18,28 @@ def test_write_log_produces_csv_with_union_headers(tmp_path):
     assert rows[0]["groups"] == "g1\ng2"      # lists joined by newline
     assert rows[1]["username"] == "u2"
     assert rows[0]["username"] == ""          # missing key -> blank
+
+
+import pytest
+
+
+def _write_csv(path, header, rows):
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def test_read_rows_returns_stripped_dicts(tmp_path):
+    p = tmp_path / "in.csv"
+    _write_csv(p, ["email", "role"], [["  a@x.io ", "annotator"], ["b@x.io", ""]])
+    rows = csvio.read_rows(str(p), ("email", "role"))
+    assert rows[0] == {"email": "a@x.io", "role": "annotator"}
+    assert rows[1]["role"] == ""
+
+
+def test_read_rows_raises_on_missing_required_column(tmp_path):
+    p = tmp_path / "in.csv"
+    _write_csv(p, ["email"], [["a@x.io"]])
+    with pytest.raises(RuntimeError, match="Missing required column"):
+        csvio.read_rows(str(p), ("email", "role"))
