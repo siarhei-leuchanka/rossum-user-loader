@@ -64,10 +64,11 @@
 
   <section id="pane-existing" class="pane">
     <table>
-      <thead><tr><th>username</th><th>email</th><th>first_name</th><th>last_name</th></tr></thead>
+      <thead><tr><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
       <tbody>
         {% for u in existing %}
-        <tr><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td></tr>
+        <tr><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+            <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

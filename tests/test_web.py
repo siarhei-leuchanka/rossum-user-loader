@@ -9,7 +9,10 @@ def make_state(loader=None):
         roles=[{"name": "annotator", "url": "https://x/groups/1"}],
         queues=[{"id": 123, "name": "Q1", "url": "https://x/queues/123"}],
         existing_users=[
-            {"username": "u1", "email": "u1@x.io", "first_name": "U", "last_name": "One"}
+            {
+                "username": "u1", "email": "u1@x.io", "first_name": "U", "last_name": "One",
+                "role_names": ["editor"], "queue_names": ["Invoices"],
+            }
         ],
         loader=loader
         or (lambda rows: [
@@ -114,3 +117,11 @@ def test_index_includes_dedup_machinery(client):
     assert b'id="dupwarn"' in html
     assert b"EXISTING_USERNAMES" in html
     assert b"u1" in html  # existing username embedded for the client-side check
+
+
+def test_existing_tab_shows_roles_and_queues(client):
+    html = client.get("/?key=s3cr3t").data
+    # Distinctive values only present on the existing user (not in ROLES/QUEUES).
+    assert b"editor" in html
+    assert b"Invoices" in html
+    assert b"roles" in html and b"queues" in html  # column headers

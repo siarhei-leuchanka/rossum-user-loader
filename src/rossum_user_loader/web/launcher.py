@@ -79,6 +79,16 @@ def _free_port() -> int:
     return port
 
 
+def _with_assignments(user, group_name_by_url, queue_name_by_url) -> dict:
+    """Add human-readable ``role_names``/``queue_names`` to an existing-user
+    record by resolving its group/queue URLs against the org reference data.
+    Unresolvable URLs fall back to the raw value so nothing is silently lost."""
+    enriched = dict(user)
+    enriched["role_names"] = [group_name_by_url.get(g, g) for g in user.get("groups", [])]
+    enriched["queue_names"] = [queue_name_by_url.get(q, q) for q in user.get("queues", [])]
+    return enriched
+
+
 def make_state(organization, backend, active_users, org_groups, org_queues) -> AppState:
     """Build the AppState the Flask layer renders.
 
@@ -89,6 +99,12 @@ def make_state(organization, backend, active_users, org_groups, org_queues) -> A
     roles = [{"name": g.name, "url": g.url} for g in org_groups]
     queues = [{"id": q.id, "name": q.name, "url": q.url} for q in org_queues]
 
+    group_name_by_url = {g.url: g.name for g in org_groups}
+    queue_name_by_url = {q.url: q.name for q in org_queues}
+    existing = [
+        _with_assignments(u, group_name_by_url, queue_name_by_url) for u in active_users
+    ]
+
     def loader(rows: list[dict]) -> list[dict]:
         return backend.run_load(rows, organization, org_groups, org_queues, active_users)
 
@@ -96,7 +112,7 @@ def make_state(organization, backend, active_users, org_groups, org_queues) -> A
         secret=secrets.token_urlsafe(32),
         roles=roles,
         queues=queues,
-        existing_users=active_users,
+        existing_users=existing,
         loader=loader,
     )
 

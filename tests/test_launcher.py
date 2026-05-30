@@ -86,3 +86,19 @@ def test_backend_reuses_single_client_across_loads(monkeypatch):
     assert any("User created" in m["Messages"] for m in r1)
     assert any("User created" in m["Messages"] for m in r2)
     assert [u["username"] for u in fake.created] == ["u1", "u2"]
+
+
+def test_with_assignments_resolves_urls_to_names():
+    groups = [FakeGroup("annotator", "https://x/groups/1")]
+    queues = [FakeQueue(123, "https://x/queues/123", "Q1")]
+    group_name_by_url = {g.url: g.name for g in groups}
+    queue_name_by_url = {q.url: q.name for q in queues}
+
+    user = {
+        "username": "u1", "email": "u1@x.io", "first_name": "U", "last_name": "One",
+        "groups": ["https://x/groups/1"], "queues": ["https://x/queues/123", "https://x/queues/999"],
+    }
+    enriched = launcher._with_assignments(user, group_name_by_url, queue_name_by_url)
+    assert enriched["role_names"] == ["annotator"]
+    # Unresolvable URL falls back to the raw value rather than being dropped.
+    assert enriched["queue_names"] == ["Q1", "https://x/queues/999"]
