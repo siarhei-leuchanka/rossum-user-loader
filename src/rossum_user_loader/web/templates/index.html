@@ -9,14 +9,14 @@
     body { font-family: "Segoe UI", Roboto, system-ui, sans-serif; margin: 0; color: #303030; background: #fff; }
 
     /* Header (Django-admin style) */
-    .dj-header { background: var(--dj-header); color: #fff; display: flex; align-items: center;
-      justify-content: space-between; padding: .7rem 1.25rem; }
-    .dj-title { font-size: 18px; font-weight: 600; letter-spacing: .3px; }
-    .dj-nav { display: flex; gap: .5rem; }
-    .dj-nav button { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.45);
-      border-radius: 4px; padding: .4rem .9rem; cursor: pointer; font-size: 13px; }
-    .dj-nav button:hover { background: rgba(255,255,255,.15); }
-    .dj-nav button.active { background: #fff; color: var(--dj-header); font-weight: 700; border-color: #fff; }
+    .dj-header { background: var(--dj-header); color: #fff; display: flex; align-items: stretch; padding: 0 1.5rem; }
+    .dj-title { font-size: 18px; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center;
+      padding-right: 1.5rem; margin-right: .25rem; border-right: 1px solid rgba(255,255,255,.25); }
+    .dj-nav { display: flex; }
+    .dj-nav button { background: transparent; color: rgba(255,255,255,.85); border: none;
+      border-bottom: 3px solid transparent; padding: 1rem 1.2rem; cursor: pointer; font-size: 14px; }
+    .dj-nav button:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .dj-nav button.active { color: #fff; font-weight: 700; border-bottom-color: #fff; background: rgba(255,255,255,.08); }
 
     /* Breadcrumbs */
     .breadcrumbs { background: #f8f8f8; border-bottom: 1px solid #eaeaea; padding: .5rem 1.25rem;
@@ -24,7 +24,8 @@
     .breadcrumbs a { color: #447e9b; text-decoration: none; }
     .breadcrumbs a:hover { text-decoration: underline; }
 
-    .content { padding: 1.1rem 1.25rem 2rem; max-width: 1200px; }
+    /* Full-width content with comfortable gutters. */
+    .content { padding: 1.25rem 2rem 2.5rem; width: 100%; }
 
     /* Modules (cards) */
     .module { border: 1px solid var(--dj-line); border-radius: 4px; margin-bottom: 1.25rem; overflow: hidden; }
@@ -145,8 +146,7 @@
             </select>
           </label>
           <span class="spacer"></span>
-          <button class="button secondary" onclick="removeAllRows()">Remove all rows</button>
-          <button class="button secondary" onclick="clearGrid()">Clear</button>
+          <button class="button secondary" onclick="clearGrid()">Clear all rows</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -359,7 +359,6 @@
 
     function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
     function addRows(n) { for (let i = 0; i < n; i++) addRow(); refreshDupWarning(); }
-    function removeAllRows() { document.getElementById('grid').innerHTML = ''; refreshDupWarning(); }
     function clearGrid() {
       document.getElementById('grid').innerHTML = '';
       document.getElementById('results').innerHTML = '';
