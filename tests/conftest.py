@@ -17,14 +17,19 @@ class FakeQueue:
 
 
 class FakeHttpClient:
-    """Captures password-reset calls made via client._http_client.create."""
+    """Captures password-reset (create) and user-patch (update) calls."""
 
     def __init__(self):
         self.reset_calls = []
+        self.update_calls = []
 
     async def create(self, resource, payload):
         self.reset_calls.append((resource, payload))
         return {"status": "reset-sent"}
+
+    async def update(self, resource, id_, data):
+        self.update_calls.append((resource, id_, data))
+        return {"id": id_, **data}
 
 
 class FakeClient:

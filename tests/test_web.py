@@ -104,12 +104,13 @@ def test_summary_total_reconciles_with_buckets():
     records = [
         {"Messages": "User created - {}"},
         {"Messages": "Password reset - {}"},
+        {"Messages": "User patched - {}"},
         {"Messages": "Skipped-User Exists"},
         {"Messages": "Error - user not created - boom"},
     ]
     from rossum_user_loader.web.app import _summarize
     s = _summarize(records)
-    assert s == {"total": 3, "created": 1, "skipped": 1, "errors": 1}
+    assert s == {"total": 4, "created": 1, "patched": 1, "skipped": 1, "errors": 1}
 
 
 def test_index_includes_dedup_machinery(client):
@@ -125,3 +126,22 @@ def test_existing_tab_shows_roles_and_queues(client):
     assert b"editor" in html
     assert b"Invoices" in html
     assert b"roles" in html and b"queues" in html  # column headers
+
+
+def test_existing_tab_has_copy_and_action_controls(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"Copy all to load list" in html   # bulk copy
+    assert b"copyExisting(" in html           # per-row copy button
+    assert b"copyAllExisting(" in html
+    assert b"<th>action</th>" in html         # per-row create/patch column
+    assert b"Set all actions" in html         # master dropdown
+    assert b"const EXISTING =" in html        # full records embedded for copy
+
+
+def test_load_summary_includes_patched_via_stub(client):
+    # The default stub loader emits "User created"; ensure the summary key set
+    # now includes patched so the page can render it.
+    client.get("/?key=s3cr3t")
+    resp = client.post("/load", json={"rows": [{"username": "x", "email": "x@y.z"}]})
+    data = resp.get_json()
+    assert "patched" in data["summary"]

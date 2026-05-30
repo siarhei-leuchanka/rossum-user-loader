@@ -155,9 +155,45 @@ async def reset_password(client: AsyncRossumAPIClient, email: str):
     )
 
 
+async def patch_user(client: AsyncRossumAPIClient, user_id: int, payload: dict):
+    """Update (PATCH) an existing user. Returns the API response.
+
+    The SDK has no first-class user-update helper, so we use the internal HTTP
+    client's generic update against the User resource (same mechanism as the
+    password-reset hot-fix above)."""
+    from rossum_api.models import Resource
+
+    return await client._http_client.update(Resource.User, user_id, payload)
+
+
 def _emit(on_result, level: str, message: str) -> None:
     if on_result is not None:
         on_result(level, message)
+
+
+async def _patch_one(client, user_data, existing_by_username, logger, on_result) -> None:
+    """Patch an existing user matched by username (roles, queues, names)."""
+    key = user_data["username"].lower().strip()
+    existing = existing_by_username.get(key)
+    if not existing or not existing.get("id"):
+        _emit(on_result, "error", f"Cannot patch - no existing user '{user_data['username']}'")
+        logger.add("Error - patch failed - no existing user", **user_data)
+        return
+
+    patch_payload = {
+        "first_name": user_data["first_name"],
+        "last_name": user_data["last_name"],
+        "groups": user_data["groups"],
+        "queues": user_data["queues"],
+    }
+    _emit(on_result, "info", f"Patching User: {user_data['username']}")
+    try:
+        response = await patch_user(client, existing["id"], patch_payload)
+        logger.add(f"User patched - {response}", **user_data)
+        _emit(on_result, "ok", f"User patched - {user_data['username']}")
+    except Exception as exc:  # noqa: BLE001
+        logger.add(f"Error - user not patched - {exc}", **user_data)
+        _emit(on_result, "error", f"ERROR - user not patched - {exc}")
 
 
 async def run_load(
@@ -169,17 +205,22 @@ async def run_load(
     existing_users: list[dict],
     on_result=None,
 ) -> "Logger":
-    """Create each row's user, skipping duplicates (by username).
+    """Create or patch each row's user (per-row ``action``), keyed by username.
 
-    Continues past per-user failures, recording every outcome in the returned
-    Logger. ``on_result(level, message)`` — if given — is called per event for
-    live console output; the web layer omits it. Callers pass the final rows to
-    create (any template example row is dropped before calling).
+    ``row["action"]`` is ``"create"`` (default) or ``"patch"``. Create skips a
+    row whose username already exists; patch updates the matching existing user
+    (roles, queues, names). Continues past per-user failures, recording every
+    outcome in the returned Logger. ``on_result(level, message)`` — if given — is
+    called per event for live console output; the web layer omits it. Callers
+    pass the final rows (any template example row is dropped before calling).
     """
     logger = Logger()
-    existing_usernames = {(u.get("username") or "").lower().strip() for u in existing_users}
+    existing_by_username = {
+        (u.get("username") or "").lower().strip(): u for u in existing_users
+    }
 
     for row in rows:
+        action = (row.get("action") or "create").strip().lower()
         try:
             user_data = prepare_user_data(row, organization, org_groups, org_queues)
         except ValueError as exc:
@@ -187,13 +228,22 @@ async def run_load(
             logger.add(f"Error - invalid user data - {exc}", email=row.get("email", ""))
             continue
 
+        if action == "patch":
+            await _patch_one(client, user_data, existing_by_username, logger, on_result)
+            continue
+
         if user_data["auth_type"] not in ("sso", "password") or not user_data["email"]:
             _emit(on_result, "skip", f"Check user data entry - {user_data['email']}")
             logger.add("Error-check user data entry. No required fields.", **user_data)
             continue
 
-        if user_data["username"].lower().strip() in existing_usernames:
-            _emit(on_result, "skip", f"User Exists - {user_data['username']}")
+        if user_data["username"].lower().strip() in existing_by_username:
+            _emit(
+                on_result,
+                "skip",
+                f"User Exists - {user_data['username']} "
+                "(set this row's action to 'patch' to update the existing user)",
+            )
             logger.add("Skipped-User Exists", **user_data)
             continue
 

@@ -17,7 +17,11 @@
     .ok { color: #137333; } .err { color: #b00020; }
     tr.dup td { background: #fdecea; }
     tr.dup input[data-col="username"], tr.dup input[data-col="email"] { border: 1px solid #b00020; }
+    tr.warn td { background: #fff4e5; }
+    tr.patch td { background: #e7f3ff; }
     #dupwarn { margin: .5rem 0; color: #b00020; font-weight: 600; }
+    #dupwarn div { margin: .15rem 0; }
+    .actions-col { white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -31,8 +35,15 @@
   <section id="pane-load" class="pane active">
     <div class="toolbar">
       <a href="/template.csv">Download template</a>
-      <label>Add <input id="nrows" type="number" value="5" min="1" style="width:4rem"> rows
+      <label>Add <input id="nrows" type="number" value="1" min="1" style="width:4rem"> rows
         <button onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
+      </label>
+      <label>Set all actions:
+        <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
+          <option value="">—</option>
+          <option value="create">Create</option>
+          <option value="patch">Patch</option>
+        </select>
       </label>
       <button onclick="removeAllRows()">Remove all rows</button>
       <button onclick="clearGrid()">Clear</button>
@@ -50,7 +61,7 @@
       <thead>
         <tr>
           <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
-          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th></th>
+          <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th>action</th><th></th>
         </tr>
       </thead>
       <tbody id="grid"></tbody>
@@ -63,11 +74,17 @@
   </section>
 
   <section id="pane-existing" class="pane">
+    <div class="toolbar">
+      <button onclick="copyAllExisting()">Copy all to load list (as patch)</button>
+      <span>Copied rows default to the <b>patch</b> action so you can update existing users.</span>
+    </div>
     <table>
-      <thead><tr><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
+      <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
       <tbody>
         {% for u in existing %}
-        <tr><td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+        <tr>
+            <td class="actions-col"><button type="button" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
+            <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
             <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
         {% endfor %}
       </tbody>
@@ -77,7 +94,8 @@
   <script>
     const ROLES = {{ roles | tojson }};
     const QUEUES = {{ queues | tojson }};
-    const EXISTING_USERNAMES = new Set({{ existing | map(attribute='username') | list | tojson }}.map(u => (u||'').toLowerCase()));
+    const EXISTING = {{ existing | tojson }};
+    const EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
     const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
 
     function showPane(name) {
@@ -138,6 +156,25 @@
       return s;
     }
 
+    function actionSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'action';
+      [['create', 'create'], ['patch', 'patch']].forEach(([v, label]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = label;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      // Action affects whether a duplicate is skipped or patched — re-check.
+      s.addEventListener('change', refreshDupWarning);
+      return s;
+    }
+
+    function setAllActions(value) {
+      document.querySelectorAll('#grid select[data-col="action"]').forEach(s => { s.value = value; });
+      refreshDupWarning();
+    }
+
     function addRow(vals) {
       vals = vals || {};
       const tr = document.createElement('tr');
@@ -156,6 +193,7 @@
       tr.appendChild(td(roleSelect(vals.role || (ROLES[0] && ROLES[0].name) || '')));
       tr.appendChild(td(queueSelect(vals.queue_ids || '')));
       tr.appendChild(td(approveSelect(vals.can_approve || 'no')));
+      tr.appendChild(td(actionSelect(vals.action || 'create')));
       const del = document.createElement('button');
       del.type = 'button';
       del.textContent = '✕';
@@ -176,6 +214,24 @@
       refreshDupWarning();
     }
 
+    function existingToRow(u) {
+      const roleNames = u.role_names || [];
+      const role = roleNames.find(r => ROLES.some(x => x.name === r))
+        || roleNames[0] || (ROLES[0] && ROLES[0].name) || '';
+      const canApprove = roleNames.indexOf('approver') >= 0 ? 'yes' : 'no';
+      const qIds = (u.queue_names || [])
+        .map(n => { const q = QUEUES.find(x => x.name === n); return q ? String(q.id) : null; })
+        .filter(Boolean);
+      return {
+        auth_type: 'password', email: u.email || '', first_name: u.first_name || '',
+        last_name: u.last_name || '', username: u.username || '', oidc_id: '',
+        role: role, queue_ids: qIds.join('\n'), can_approve: canApprove, action: 'patch',
+      };
+    }
+
+    function copyExisting(i) { addRow(existingToRow(EXISTING[i])); refreshDupWarning(); showPane('load'); }
+    function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
+
     function effUsername(tr) {
       const get = (col) => {
         const el = tr.querySelector('[data-col="' + col + '"]');
@@ -185,32 +241,51 @@
       return (get('username') || get('email')).toLowerCase();
     }
 
-    function checkDup(tr) {
-      const u = effUsername(tr);
-      const isDup = !!u && EXISTING_USERNAMES.has(u);
-      tr.classList.toggle('dup', isDup);
-      const title = isDup
-        ? 'A user with this username already exists in Rossum — this row will be skipped.'
-        : '';
-      ['username', 'email'].forEach(col => {
-        const el = tr.querySelector('[data-col="' + col + '"]');
-        if (el) el.title = title;
-      });
-      return isDup;
+    function rowAction(tr) {
+      const sel = tr.querySelector('[data-col="action"]');
+      return sel ? sel.value : 'create';
     }
 
     function refreshDupWarning() {
-      let n = 0;
-      document.querySelectorAll('#grid tr').forEach(tr => { if (checkDup(tr)) n++; });
+      let skip = 0, badPatch = 0;
+      document.querySelectorAll('#grid tr').forEach(tr => {
+        const u = effUsername(tr);
+        const isDup = !!u && EXISTING_USERNAMES.has(u);
+        const action = rowAction(tr);
+        const willSkip = isDup && action === 'create';
+        const willPatch = isDup && action === 'patch';
+        const patchNoTarget = !!u && !isDup && action === 'patch';
+        tr.classList.toggle('dup', willSkip);
+        tr.classList.toggle('patch', willPatch);
+        tr.classList.toggle('warn', patchNoTarget);
+        let title = '';
+        if (willSkip) {
+          skip++;
+          title = 'A user with this username already exists. With action "create" this row '
+            + 'will be SKIPPED — switch its action to "patch" to UPDATE the existing user instead.';
+        } else if (patchNoTarget) {
+          badPatch++;
+          title = 'No existing user with this username — a "patch" row will fail (nothing to update).';
+        } else if (willPatch) {
+          title = 'This will UPDATE (patch) the existing user.';
+        }
+        ['username', 'email'].forEach(col => {
+          const el = tr.querySelector('[data-col="' + col + '"]');
+          if (el) el.title = title;
+        });
+      });
       const warn = document.getElementById('dupwarn');
-      if (n > 0) {
-        warn.textContent = '⚠ ' + n + ' row(s) match an existing user (by username) ' +
-          'and will be skipped during load.';
-        warn.style.display = 'block';
-      } else {
-        warn.textContent = '';
-        warn.style.display = 'none';
+      warn.innerHTML = '';
+      const msgs = [];
+      if (skip) {
+        msgs.push('⚠ ' + skip + ' row(s) match an existing user and will be SKIPPED. '
+          + 'To update an existing user instead, set that row’s action to "patch".');
       }
+      if (badPatch) {
+        msgs.push('⚠ ' + badPatch + ' "patch" row(s) have no matching existing user and will fail.');
+      }
+      msgs.forEach(m => { const d = document.createElement('div'); d.textContent = m; warn.appendChild(d); });
+      warn.style.display = msgs.length ? 'block' : 'none';
     }
 
     const HEADER = ["auth_type","email","first_name","last_name","username","oidc_id","role","queue_ids","can_approve"];
@@ -263,8 +338,9 @@
           return;
         }
         const s = data.summary;
-        status.innerHTML = '<span class="ok">Created ' + s.created + '</span>, skipped ' +
-          s.skipped + ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
+        status.innerHTML = '<span class="ok">Created ' + s.created + '</span>, ' +
+          '<span class="ok">patched ' + (s.patched || 0) + '</span>, skipped ' + s.skipped +
+          ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
         renderResults(data.records);
         document.getElementById('loglink').style.display = 'inline';
       } catch (e) {

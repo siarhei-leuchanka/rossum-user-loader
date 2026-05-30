@@ -113,3 +113,30 @@ async def test_run_load_invokes_on_result_callback():
     levels = [level for level, _ in events]
     assert "info" in levels   # "Creating User"
     assert "ok" in levels     # "User created" and "Password reset"
+
+
+async def test_run_load_patches_existing_user_when_action_patch():
+    rows = [_row(email="dup@x.io", username="dupuser", auth_type="password", action="patch")]
+    existing = [{"username": "dupuser", "email": "dup@x.io", "id": 42}]
+    client = FakeClient()
+
+    logger = await core.run_load(client, rows, "https://x/org/1", GROUPS, QUEUES, existing)
+
+    # patched via _http_client.update, not created
+    assert client.created == []
+    assert client._http_client.update_calls
+    _resource, user_id, payload = client._http_client.update_calls[0]
+    assert user_id == 42
+    assert set(payload.keys()) == {"first_name", "last_name", "groups", "queues"}
+    assert any("User patched" in m["Messages"] for m in logger.get())
+
+
+async def test_run_load_patch_without_existing_user_records_error():
+    rows = [_row(email="ghost@x.io", username="ghost", auth_type="password", action="patch")]
+    client = FakeClient()
+
+    logger = await core.run_load(client, rows, "https://x/org/1", GROUPS, QUEUES, [])
+
+    assert client._http_client.update_calls == []
+    assert client.created == []
+    assert any("patch failed - no existing user" in m["Messages"] for m in logger.get())
