@@ -94,6 +94,15 @@
     .q-list label { display: block; white-space: nowrap; cursor: pointer; padding: 0 2px; font-weight: normal; }
     .q-list input[type="checkbox"] { width: auto; margin-right: 4px; }
     .q-unmatched { color: #b00020; font-size: 12px; margin-top: 2px; }
+
+    /* Bulk "Set all queues" popover (mirrors per-row queue widget). */
+    .bulk-queues { position: relative; }
+    .bulk-queues > summary { cursor: pointer; color: #2b4b5a; }
+    .bulk-queues-body { position: absolute; right: 0; top: 1.7rem; z-index: 20; width: 18rem;
+      background: #fff; border: 1px solid var(--dj-line); border-radius: 4px; padding: .5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+    .bulk-queues-body #bulk-queue-search { width: 100%; }
+    .bulk-queues-body .button { margin-top: .4rem; }
   </style>
 </head>
 <body>
@@ -138,6 +147,15 @@
         <div class="table-toolbar">
           <label>Add <input id="nrows" type="number" value="1" min="1" max="100" class="num"> row(s) <small>(max 100)</small></label>
           <button class="button" onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
+          <span class="spacer"></span>
+          <details class="bulk-queues">
+            <summary>Set all queues…</summary>
+            <div class="bulk-queues-body">
+              <input type="text" id="bulk-queue-search" placeholder="search queues…">
+              <div id="bulk-queue-list" class="q-list"></div>
+              <button class="button" onclick="applyQueuesToAll()">Apply queues to all rows</button>
+            </div>
+          </details>
           <label>Set all actions:
             <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
               <option value="">—</option>
@@ -145,7 +163,6 @@
               <option value="patch">Patch</option>
             </select>
           </label>
-          <span class="spacer"></span>
           <button class="button secondary" onclick="clearGrid()">Clear all rows</button>
         </div>
         <div class="table-wrap">
@@ -618,6 +635,42 @@
       });
     }
 
+    // --- Bulk "Set all queues": pick queues once, apply to every row ---
+    function buildBulkQueues() {
+      const list = document.getElementById('bulk-queue-list');
+      const search = document.getElementById('bulk-queue-search');
+      if (!list || !search) return;
+      QUEUES.forEach(q => {
+        const label = document.createElement('label');
+        label.dataset.search = (q.name + ' ' + q.id).toLowerCase();
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = String(q.id);
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + q.name + ' (' + q.id + ')'));
+        list.appendChild(label);
+      });
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        list.querySelectorAll('label').forEach(l => {
+          l.style.display = (!term || l.dataset.search.indexOf(term) >= 0) ? '' : 'none';
+        });
+      });
+    }
+
+    function applyQueuesToAll() {
+      const wanted = new Set(
+        Array.from(document.querySelectorAll('#bulk-queue-list input[type="checkbox"]:checked'))
+          .map(c => c.value)
+      );
+      const widgets = document.querySelectorAll('#grid .queue-widget');
+      if (!widgets.length) { alert('No rows yet — add or load rows first.'); return; }
+      widgets.forEach(w => {
+        w.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = wanted.has(cb.value); });
+      });
+    }
+
+    buildBulkQueues();
     // Start empty — rows are added only when the user presses "Add".
   </script>
 </body>

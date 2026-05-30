@@ -232,3 +232,11 @@ def test_index_hardening_markers(client):
     assert b"MAX_ADD_ROWS" in html
     assert b"MAX_CSV_BYTES" in html                  # csv upload size cap
     assert b"Please choose a .csv file" in html      # csv mime/extension check
+
+
+def test_bulk_set_all_queues_controls_present(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"Set all queues" in html
+    assert b"Apply queues to all rows" in html
+    assert b"applyQueuesToAll(" in html
+    assert b"buildBulkQueues(" in html
