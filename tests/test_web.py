@@ -171,3 +171,9 @@ def test_index_has_csv_file_loader(client):
     assert b"loadCsvFile(" in html
     assert b"parseDelimited(" in html       # quote-aware ';' parser
     assert b'const DELIM = \';\'' in html or b"const DELIM = ';'" in html
+
+
+def test_index_has_in_list_duplicate_detection(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"share a username with another row" in html  # in-list dup banner text
+    assert b"dupinlist" in html                           # row highlight class
