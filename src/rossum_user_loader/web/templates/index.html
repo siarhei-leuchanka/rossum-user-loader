@@ -25,6 +25,10 @@
     #dupwarn { margin: .5rem 0; color: #b00020; font-weight: 600; }
     #dupwarn div { margin: .15rem 0; }
     .actions-col { white-space: nowrap; }
+    .queue-widget { min-width: 12rem; }
+    .q-list { max-height: 4.5rem; overflow-y: auto; border: 1px solid #ccc; margin-top: 2px; }
+    .q-list label { display: block; white-space: nowrap; cursor: pointer; padding: 0 2px; font-weight: normal; }
+    .q-list input[type="checkbox"] { width: auto; margin-right: 4px; }
   </style>
 </head>
 <body>
@@ -122,18 +126,43 @@
     }
 
     function queueSelect(ids) {
-      // Multi-select showing queue NAMES; value is the queue id. Selecting
-      // multiple follows the "one id per line" storage convention on submit.
-      const s = document.createElement('select');
-      s.multiple = true; s.size = 3; s.dataset.col = 'queue_ids';
+      // Searchable multi-select: a filter box narrows the checkbox list by queue
+      // name or id; checkboxes keep multi-selection. Selected ids are read on
+      // submit (collectRows) and stored "one id per line".
       const wanted = new Set((ids || '').split(/[\n, ]+/).filter(Boolean));
+      const wrap = document.createElement('div');
+      wrap.className = 'queue-widget';
+      wrap.dataset.col = 'queue_ids';
+
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.className = 'q-search';
+      search.placeholder = 'search queues…';
+
+      const list = document.createElement('div');
+      list.className = 'q-list';
       QUEUES.forEach(q => {
-        const o = document.createElement('option');
-        o.value = String(q.id); o.textContent = q.name + ' (' + q.id + ')';
-        if (wanted.has(String(q.id))) o.selected = true;
-        s.appendChild(o);
+        const label = document.createElement('label');
+        label.dataset.search = (q.name + ' ' + q.id).toLowerCase();
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = String(q.id);
+        if (wanted.has(String(q.id))) cb.checked = true;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + q.name + ' (' + q.id + ')'));
+        list.appendChild(label);
       });
-      return s;
+
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        list.querySelectorAll('label').forEach(l => {
+          l.style.display = (!term || l.dataset.search.indexOf(term) >= 0) ? '' : 'none';
+        });
+      });
+
+      wrap.appendChild(search);
+      wrap.appendChild(list);
+      return wrap;
     }
 
     function approveSelect(value) {
@@ -376,10 +405,13 @@
       document.querySelectorAll('#grid tr').forEach(tr => {
         const row = {};
         tr.querySelectorAll('[data-col]').forEach(el => {
-          if (el.dataset.col === 'queue_ids' && el.multiple) {
-            row.queue_ids = Array.from(el.selectedOptions).map(o => o.value).join('\n');
+          if (el.dataset.col === 'queue_ids') {
+            // Searchable checkbox widget: gather checked queue ids.
+            const ids = Array.from(el.querySelectorAll('input[type="checkbox"]:checked'))
+              .map(c => c.value);
+            row.queue_ids = ids.join('\n');
           } else {
-            row[el.dataset.col] = el.value.trim();
+            row[el.dataset.col] = (el.value || '').trim();
           }
         });
         rows.push(row);

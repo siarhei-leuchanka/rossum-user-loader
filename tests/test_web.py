@@ -177,3 +177,11 @@ def test_index_has_in_list_duplicate_detection(client):
     html = client.get("/?key=s3cr3t").data
     assert b"share a username with another row" in html  # in-list dup banner text
     assert b"dupinlist" in html                           # row highlight class
+
+
+def test_queue_widget_is_searchable_multiselect(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"queue-widget" in html      # searchable queue widget
+    assert b"q-search" in html          # filter input
+    assert b"search queues" in html     # placeholder
+    assert b'type="checkbox"' in html   # checkboxes keep multi-select
