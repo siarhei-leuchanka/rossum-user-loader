@@ -155,6 +155,70 @@ async def reset_password(client: AsyncRossumAPIClient, email: str):
     )
 
 
+def _emit(on_result, level: str, message: str) -> None:
+    if on_result is not None:
+        on_result(level, message)
+
+
+async def run_load(
+    client: AsyncRossumAPIClient,
+    rows: list[dict],
+    organization: str,
+    org_groups: list,
+    org_queues: list,
+    existing_users: list[dict],
+    on_result=None,
+) -> "Logger":
+    """Create each row's user, skipping duplicates (by username).
+
+    Continues past per-user failures, recording every outcome in the returned
+    Logger. ``on_result(level, message)`` — if given — is called per event for
+    live console output; the web layer omits it. Callers pass the final rows to
+    create (any template example row is dropped before calling).
+    """
+    logger = Logger()
+    existing_usernames = {u["username"].lower().strip() for u in existing_users}
+
+    for row in rows:
+        try:
+            user_data = prepare_user_data(row, organization, org_groups, org_queues)
+        except ValueError as exc:
+            _emit(on_result, "skip", f"Skipping row - {exc}")
+            logger.add(f"Error - invalid user data - {exc}", email=row.get("email", ""))
+            continue
+
+        if user_data["auth_type"] not in ("sso", "password") or not user_data["email"]:
+            _emit(on_result, "skip", f"Check user data entry - {user_data['email']}")
+            logger.add("Error-check user data entry. No required fields.", **user_data)
+            continue
+
+        if user_data["username"].lower() in existing_usernames:
+            _emit(on_result, "skip", f"User Exists - {user_data['username']}")
+            logger.add("Skipped-User Exists", **user_data)
+            continue
+
+        _emit(on_result, "info", f"Creating User: {user_data['email']}")
+        try:
+            response = await create_user(client, user_data)
+            logger.add(f"User created - {response}", **user_data)
+            _emit(on_result, "ok", f"User created - {user_data['email']}")
+        except Exception as exc:  # noqa: BLE001
+            logger.add(f"Error - user not created - {exc}", **user_data)
+            _emit(on_result, "error", f"ERROR - user not created - {exc}")
+            continue
+
+        if user_data["auth_type"] == "password":
+            try:
+                response = await reset_password(client, user_data["email"])
+                logger.add(f"Password reset - {response}", **user_data)
+                _emit(on_result, "ok", f"Password reset for {user_data['email']}")
+            except Exception as exc:  # noqa: BLE001
+                logger.add(f"Error - password reset failed - {exc}", **user_data)
+                _emit(on_result, "error", f"Password reset failed - {exc}")
+
+    return logger
+
+
 class Logger:
     """Accumulates structured log records for export."""
 

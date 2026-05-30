@@ -60,3 +60,41 @@ async def test_list_active_users_has_username_and_email():
     users = await core.list_active_users(client)
     assert users[0]["username"] == "jdoe"
     assert users[0]["email"] == "j@x.io"
+
+
+from tests.conftest import FakeClient
+
+
+async def test_run_load_creates_new_and_skips_existing_by_username():
+    rows = [
+        _row(email="new@x.io", username="newuser", auth_type="password"),
+        _row(email="dup@x.io", username="dupuser", auth_type="password"),
+    ]
+    existing = [{"username": "dupuser", "email": "dup@x.io"}]
+    client = FakeClient()
+
+    logger = await core.run_load(
+        client, rows, "https://x/org/1", GROUPS, QUEUES, existing
+    )
+
+    # only the non-duplicate user was created
+    assert [u["username"] for u in client.created] == ["newuser"]
+    # password users get a reset request
+    assert client._http_client.reset_calls
+    notes = [m["Messages"] for m in logger.get()]
+    assert any("User created" in n for n in notes)
+    assert any("User Exists" in n for n in notes)
+
+
+async def test_run_load_records_creation_failure_and_continues():
+    rows = [
+        _row(email="boom@x.io", username="boom", auth_type="password"),
+        _row(email="ok@x.io", username="ok", auth_type="password"),
+    ]
+    client = FakeClient(fail_emails={"boom@x.io"})
+
+    logger = await core.run_load(client, rows, "https://x/org/1", GROUPS, QUEUES, [])
+
+    assert [u["username"] for u in client.created] == ["ok"]
+    notes = [m["Messages"] for m in logger.get()]
+    assert any("Error - user not created" in n for n in notes)
