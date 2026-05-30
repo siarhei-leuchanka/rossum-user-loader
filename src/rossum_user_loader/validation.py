@@ -68,7 +68,8 @@ def validate_domain(url: str) -> str:
 
 def validate_org_id(value: str) -> str:
     value = (value or "").strip()
-    if not value.isdigit():
+    # ASCII digits only — str.isdigit() would also accept unicode digit forms.
+    if not re.fullmatch(r"[0-9]+", value):
         raise ValidationError("Organization ID must be digits only.")
     n = int(value)
     if n <= 0 or n > MAX_ORG_ID:

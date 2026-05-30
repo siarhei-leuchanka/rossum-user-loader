@@ -42,6 +42,12 @@ def test_validate_org_id_ok():
     assert v.validate_org_id(" 42 ") == "42"
 
 
+def test_validate_org_id_rejects_unicode_digits():
+    # Arabic-Indic digits are str.isdigit()==True but must NOT be accepted.
+    with pytest.raises(v.ValidationError):
+        v.validate_org_id("٥٣")
+
+
 def test_validate_rows_drops_unknown_keys_and_keeps_newline():
     out = v.validate_rows([{"email": "a@x.io", "evil": "x", "queue_ids": "1\n2"}])
     assert out == [{"email": "a@x.io", "queue_ids": "1\n2"}]
