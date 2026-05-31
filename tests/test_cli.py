@@ -67,3 +67,31 @@ def test_gather_connection_reprompts_on_bad_url(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
     conn = cli.gather_connection()
     assert conn["domain"] == "https://x.rossum.app/api/v1"
+
+
+def test_read_input_rows_uses_csv_reader_for_csv(tmp_path):
+    p = tmp_path / "load.csv"
+    p.write_text(
+        "auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n"
+        "password;a@x.io;A;B;;;annotator;1;no\n",
+        encoding="utf-8",
+    )
+    rows = cli._read_input_rows({"file_path": str(p), "sheet_name": ""})
+    assert rows and rows[0]["email"] == "a@x.io"
+
+
+def test_gather_config_skips_sheet_prompt_for_csv(monkeypatch):
+    answers = iter(["https://x.rossum.app/api/v1", "42", "/tmp/load.csv"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")  # skip getpass
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    cfg = cli.gather_config()
+    assert cfg["file_path"] == "/tmp/load.csv"
+    assert cfg["sheet_name"] == ""
+
+
+def test_gather_config_prompts_sheet_for_xlsx(monkeypatch):
+    answers = iter(["https://x.rossum.app/api/v1", "42", "/tmp/load.xlsx", "Sheet1"])
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    cfg = cli.gather_config()
+    assert cfg["sheet_name"] == "Sheet1"

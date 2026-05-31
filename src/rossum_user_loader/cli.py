@@ -64,11 +64,25 @@ def gather_connection() -> dict:
 
 
 def gather_config() -> dict:
-    """Connection details plus the spreadsheet path/sheet for the CLI loader."""
+    """Connection details plus the input file (.csv or .xlsx) for the CLI loader.
+
+    CSV has no worksheets, so the sheet-name prompt is only shown for .xlsx.
+    """
     conn = gather_connection()
-    file_path = input("Provide a path to load file: ").strip("'").strip()
-    sheet_name = input("Provide a sheet name to load file: ").strip()
+    file_path = input("Provide a path to load file (.csv or .xlsx): ").strip().strip("'\"")
+    sheet_name = ""
+    if not file_path.lower().endswith(".csv"):
+        sheet_name = input("Provide a sheet name to load file: ").strip()
     return {**conn, "file_path": file_path, "sheet_name": sheet_name}
+
+
+def _read_input_rows(config: dict) -> list[dict]:
+    """Read input rows, choosing the reader by file extension (.csv vs .xlsx)."""
+    if config["file_path"].lower().endswith(".csv"):
+        return csvio.read_rows(config["file_path"], core.REQUIRED_COLUMNS)
+    return excel.read_rows(
+        config["file_path"], config["sheet_name"], core.REQUIRED_COLUMNS
+    )
 
 
 async def load_users(config: dict) -> None:
@@ -76,9 +90,7 @@ async def load_users(config: dict) -> None:
         base_url=config["domain"], credentials=Token(token=config["token"])
     )
 
-    rows = excel.read_rows(
-        config["file_path"], config["sheet_name"], core.REQUIRED_COLUMNS
-    )
+    rows = _read_input_rows(config)
     print(f"{GREEN}All supported columns detected. Moving on{RESET}")
 
     try:
