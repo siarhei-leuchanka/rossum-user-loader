@@ -95,3 +95,63 @@ def test_gather_config_prompts_sheet_for_xlsx(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
     cfg = cli.gather_config()
     assert cfg["sheet_name"] == "Sheet1"
+
+
+def test_load_users_writes_log_even_when_collect_data_fails(tmp_path, monkeypatch):
+    import asyncio
+    p = tmp_path / "load.csv"
+    p.write_text(
+        "auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n"
+        "password;ex@x.io;E;X;;;annotator;;no\n"
+        "password;a@x.io;A;B;;;annotator;;no\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "AsyncRossumAPIClient", lambda **k: object())
+    monkeypatch.setattr(cli, "Token", lambda **k: None)
+
+    async def boom(client):
+        raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(cli.core, "collect_data", boom)
+    config = {
+        "token": "t", "domain": "https://x/api/v1",
+        "organization": "https://x/api/v1/organizations/1",
+        "file_path": str(p), "sheet_name": "",
+    }
+    asyncio.run(cli.load_users(config))  # must NOT raise
+
+    logs = list(tmp_path.glob("user_load_*.csv"))
+    assert len(logs) == 1
+    assert "401 Unauthorized" in logs[0].read_text()
+
+
+def test_load_users_processes_every_row_and_logs_summary(tmp_path, monkeypatch):
+    import asyncio
+    from tests.conftest import FakeClient, FakeGroup
+    p = tmp_path / "load.csv"
+    p.write_text(
+        "auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n"
+        "password;u1@x.io;One;A;;;annotator;;no\n"
+        "password;u2@x.io;Two;B;;;annotator;;no\n",
+        encoding="utf-8",
+    )
+    fake = FakeClient()
+    monkeypatch.setattr(cli, "AsyncRossumAPIClient", lambda **k: fake)
+    monkeypatch.setattr(cli, "Token", lambda **k: None)
+
+    async def collect(client):
+        return ([], [FakeGroup("annotator", "https://x/g/1")], [])
+
+    monkeypatch.setattr(cli.core, "collect_data", collect)
+    cfg = {
+        "token": "t", "domain": "https://x/api/v1",
+        "organization": "https://x/api/v1/organizations/1",
+        "file_path": str(p), "sheet_name": "",
+    }
+    asyncio.run(cli.load_users(cfg))
+
+    # No row is dropped — BOTH users are created.
+    assert [u["username"] for u in fake.created] == ["u1@x.io", "u2@x.io"]
+    log = next(tmp_path.glob("user_load_*.csv")).read_text()
+    assert "u1@x.io" in log and "u2@x.io" in log
+    assert "Summary -" in log

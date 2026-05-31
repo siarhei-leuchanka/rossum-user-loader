@@ -140,3 +140,16 @@ async def test_run_load_patch_without_existing_user_records_error():
     assert client._http_client.update_calls == []
     assert client.created == []
     assert any("patch failed - no existing user" in m["Messages"] for m in logger.get())
+
+
+def test_summarize_counts_outcomes():
+    recs = [
+        {"Messages": "User created - x"},
+        {"Messages": "Password reset - x"},
+        {"Messages": "User patched - y"},
+        {"Messages": "Skipped-User Exists"},
+        {"Messages": "Error - user not created - boom"},
+    ]
+    assert core.summarize(recs) == {
+        "total": 4, "created": 1, "patched": 1, "skipped": 1, "errors": 1
+    }

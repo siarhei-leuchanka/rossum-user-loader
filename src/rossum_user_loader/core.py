@@ -282,3 +282,29 @@ class Logger:
 
     def get(self) -> list[dict]:
         return self.log
+
+
+def summarize(records: list[dict]) -> dict:
+    """Count outcomes from a list of log records by their message prefix.
+
+    ``total`` reconciles with created+patched+skipped+errors; password-reset
+    bookkeeping records are excluded from the error count (the user itself was
+    already created and counted)."""
+    def msg(r):
+        return str(r.get("Messages", ""))
+
+    created = sum(1 for r in records if msg(r).startswith("User created"))
+    patched = sum(1 for r in records if msg(r).startswith("User patched"))
+    skipped = sum(1 for r in records if "Skipped" in msg(r) or "Skipping" in msg(r))
+    errors = sum(
+        1
+        for r in records
+        if msg(r).startswith("Error") and "password reset" not in msg(r).lower()
+    )
+    return {
+        "total": created + patched + skipped + errors,
+        "created": created,
+        "patched": patched,
+        "skipped": skipped,
+        "errors": errors,
+    }

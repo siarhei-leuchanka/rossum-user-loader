@@ -90,26 +90,45 @@ async def load_users(config: dict) -> None:
         base_url=config["domain"], credentials=Token(token=config["token"])
     )
 
-    rows = _read_input_rows(config)
-    print(f"{GREEN}All supported columns detected. Moving on{RESET}")
-
+    # A log is ALWAYS written — even if reading the file or reaching Rossum
+    # fails — so every run leaves a record (the abort reason included).
+    logger = core.Logger()
     try:
-        active_users, org_groups, org_queues = await core.collect_data(client)
+        # Every data row is processed as-is; the header is consumed by the
+        # reader. No row is dropped or special-cased.
+        rows = _read_input_rows(config)
+        info = f"Read {len(rows)} data row(s) to process"
+        print(f"{GREEN}{info}{RESET}")
+        if not rows:
+            print(f"{RED}No user rows to process — nothing to do.{RESET}")
+
+        try:
+            active_users, org_groups, org_queues = await core.collect_data(client)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Can't get data from Rossum: {exc}") from exc
+
+        logger = await core.run_load(
+            client,
+            rows,
+            config["organization"],
+            org_groups,
+            org_queues,
+            active_users,
+            on_result=_console_reporter,
+        )
+        logger.add("Info - " + info)
+        s = core.summarize(logger.get())
+        summary = (
+            f"created {s['created']}, patched {s['patched']}, "
+            f"skipped {s['skipped']}, errors {s['errors']} (of {s['total']})"
+        )
+        logger.add("Summary - " + summary)
+        print(f"{GREEN}Done — {summary}{RESET}")
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Can't get data from Rossum: {exc}") from exc
-
-    # rows[1:] drops the template example row.
-    logger = await core.run_load(
-        client,
-        rows[1:],
-        config["organization"],
-        org_groups,
-        org_queues,
-        active_users,
-        on_result=_console_reporter,
-    )
-
-    _export_log(logger, config["file_path"])
+        logger.add(f"Error - load aborted - {exc}")
+        print(f"{RED}Load aborted - {exc}{RESET}")
+    finally:
+        _export_log(logger, config["file_path"])
 
 
 def _console_reporter(level: str, message: str) -> None:
@@ -124,7 +143,7 @@ def _export_log(logger: core.Logger, input_file_path: str) -> None:
     name = f"user_load_{timestamp}"
     base = os.path.join(directory, name) if directory else name
     out_path = csvio.write_log(base, logger.get())
-    print(f"{GREEN}Log written to{RESET} {out_path}")
+    print(f"{GREEN}Log written to{RESET} {os.path.abspath(out_path)}")
 
 
 def run(argv: list[str] | None = None) -> None:
