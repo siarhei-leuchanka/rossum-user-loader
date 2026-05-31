@@ -222,3 +222,6 @@ docs
 # Local CLI run artifacts
 load.csv
 user_load_*.csv
+
+
+.DS_Store
