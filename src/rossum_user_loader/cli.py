@@ -10,12 +10,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime
+import getpass
 import os
 
 from rossum_api import AsyncRossumAPIClient
 from rossum_api.dtos import Token
 
-from rossum_user_loader import __version__, core, excel
+from rossum_user_loader import __version__, core, csvio, excel, validation
 
 # ANSI colors used in console output.
 RED = "\033[91m"
@@ -25,114 +26,146 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 
-def gather_config() -> dict:
-    """Collect run configuration from prompts (token may come from env)."""
-    token = os.environ.get("ROSSUM_API_TOKEN") or input(
-        "Please enter your Rossum API token: "
-    )
-    domain = input(
-        "Please enter Rossum domain url with /v1 in the end "
-        "e.g. https://custom-domain.rossum.app/api/v1: "
-    ).strip()
-    organization_id = input("What is the target Organization ID: ").strip()
-    file_path = input("Provide a path to load file: ").strip("'").strip()
-    sheet_name = input("Provide a sheet name to load file: ").strip()
+def _prompt_valid(label: str, validator, env_value=None, secret=False):
+    """Prompt until ``validator`` accepts the input. If ``env_value`` is set,
+    validate it once (no loop) so a bad env var fails fast with a clear error.
+    ``secret=True`` reads via getpass so the value is not echoed to the terminal."""
+    if env_value:
+        return validator(env_value)
+    read = getpass.getpass if secret else input
+    while True:
+        try:
+            return validator(read(label))
+        except validation.ValidationError as exc:
+            print(f"{RED}{exc}{RESET}")
 
+
+def gather_connection() -> dict:
+    """Collect and validate Rossum connection details (token may come from env)."""
+    token = _prompt_valid(
+        "Please enter your Rossum API token (input hidden): ",
+        validation.validate_token,
+        env_value=os.environ.get("ROSSUM_API_TOKEN"),
+        secret=True,
+    )
+    domain = _prompt_valid(
+        "Please enter Rossum domain url with /v1 in the end "
+        "e.g. https://custom-domain.rossum.app/api/v1: ",
+        validation.validate_domain,
+    )
+    organization_id = _prompt_valid(
+        "What is the target Organization ID: ", validation.validate_org_id
+    )
     return {
         "token": token,
         "domain": domain,
-        "organization": f"{domain}/organizations/{organization_id}".strip(),
-        "file_path": file_path,
-        "sheet_name": sheet_name,
+        "organization": f"{domain}/organizations/{organization_id}",
     }
+
+
+def gather_config() -> dict:
+    """Connection details plus the input file (.csv or .xlsx) for the CLI loader.
+
+    CSV has no worksheets, so the sheet-name prompt is only shown for .xlsx.
+    """
+    conn = gather_connection()
+    file_path = input("Provide a path to load file (.csv or .xlsx): ").strip().strip("'\"")
+    sheet_name = ""
+    if not file_path.lower().endswith(".csv"):
+        sheet_name = input("Provide a sheet name to load file: ").strip()
+    return {**conn, "file_path": file_path, "sheet_name": sheet_name}
+
+
+def _read_input_rows(config: dict) -> list[dict]:
+    """Read input rows, choosing the reader by file extension (.csv vs .xlsx)."""
+    if config["file_path"].lower().endswith(".csv"):
+        return csvio.read_rows(config["file_path"], core.REQUIRED_COLUMNS)
+    return excel.read_rows(
+        config["file_path"], config["sheet_name"], core.REQUIRED_COLUMNS
+    )
 
 
 async def load_users(config: dict) -> None:
     client = AsyncRossumAPIClient(
         base_url=config["domain"], credentials=Token(token=config["token"])
     )
+
+    # A log is ALWAYS written — even if reading the file or reaching Rossum
+    # fails — so every run leaves a record (the abort reason included).
     logger = core.Logger()
-
-    rows = excel.read_rows(
-        config["file_path"], config["sheet_name"], core.SUPPORTED_COLUMNS.keys()
-    )
-    print(f"{GREEN}All supported columns detected. Moving on{RESET}")
-
     try:
-        active_users, org_groups, org_queues = await core.collect_data(client)
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Can't get data from Rossum: {exc}") from exc
+        # Every data row is processed as-is; the header is consumed by the
+        # reader. No row is dropped or special-cased.
+        rows = _read_input_rows(config)
+        info = f"Read {len(rows)} data row(s) to process"
+        print(f"{GREEN}{info}{RESET}")
+        if not rows:
+            print(f"{RED}No user rows to process — nothing to do.{RESET}")
 
-    existing_emails = {u["email"].lower().strip() for u in active_users}
-
-    # The first data row in the template is an example/instructions row.
-    for row in rows[1:]:
         try:
-            user_data = core.prepare_user_data(
-                row, config["organization"], org_groups, org_queues
-            )
-        except ValueError as exc:
-            print(f"{RED}Skipping row{RESET} - {exc}")
-            logger.add(f"Error - invalid user data - {exc}", email=row.get("email", ""))
-            continue
-
-        if user_data["auth_type"] not in ("sso", "password") or not user_data["email"]:
-            print(f"Check user data entry - {user_data['email']}")
-            logger.add("Error-check user data entry. No required fields.", **user_data)
-            continue
-
-        if user_data["email"].lower() in existing_emails:
-            print(f"{RED}User Exists{RESET} - {user_data['email']}")
-            logger.add("Skipped-User Exists", **user_data)
-            continue
-
-        print(f"{BLUE}Creating User: {RESET}", user_data["email"])
-        try:
-            response = await core.create_user(client, user_data)
-            logger.add(f"User created - {response}", **user_data)
-            print(f"User created - {response}")
+            active_users, org_groups, org_queues = await core.collect_data(client)
         except Exception as exc:  # noqa: BLE001
-            print(f"{RED}ERROR - user most likely not created{RESET} {exc}")
-            logger.add(f"Error - user not created - {exc}", **user_data)
-            continue
+            raise RuntimeError(f"Can't get data from Rossum: {exc}") from exc
 
-        if user_data["auth_type"] == "password":
-            try:
-                response = await core.reset_password(client, user_data["email"])
-                logger.add(f"Password reset - {response}", **user_data)
-                print(
-                    f"{MAGENTA}Password reset is done for user{RESET} "
-                    f"{BLUE}{user_data['email']}{RESET} - {response}"
-                )
-            except Exception as exc:  # noqa: BLE001
-                print(f"{RED}Password reset failed{RESET} {exc}")
-                logger.add(f"Error - password reset failed - {exc}", **user_data)
+        logger = await core.run_load(
+            client,
+            rows,
+            config["organization"],
+            org_groups,
+            org_queues,
+            active_users,
+            on_result=_console_reporter,
+        )
+        logger.add("Info - " + info)
+        s = core.summarize(logger.get())
+        summary = (
+            f"created {s['created']}, patched {s['patched']}, "
+            f"skipped {s['skipped']}, errors {s['errors']} (of {s['total']})"
+        )
+        logger.add("Summary - " + summary)
+        print(f"{GREEN}Done — {summary}{RESET}")
+    except Exception as exc:  # noqa: BLE001
+        logger.add(f"Error - load aborted - {exc}")
+        print(f"{RED}Load aborted - {exc}{RESET}")
+    finally:
+        _export_log(logger, config["file_path"])
 
-    _export_log(logger, config["file_path"])
+
+def _console_reporter(level: str, message: str) -> None:
+    color = {"ok": GREEN, "error": RED, "skip": RED, "info": BLUE}.get(level, "")
+    print(f"{color}{message}{RESET}")
 
 
 def _export_log(logger: core.Logger, input_file_path: str) -> None:
-    """Write the run log next to the input file."""
+    """Write the run log (CSV) next to the input file."""
     directory = os.path.dirname(input_file_path)
-    timestamp = datetime.datetime.now()
-    base = os.path.join(directory, f"user_load_{timestamp}") if directory else f"user_load_{timestamp}"
-    out_path = excel.write_log(base, logger.get())
-    print(f"{GREEN}Log written to{RESET} {out_path}")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    name = f"user_load_{timestamp}"
+    base = os.path.join(directory, name) if directory else name
+    out_path = csvio.write_log(base, logger.get())
+    print(f"{GREEN}Log written to{RESET} {os.path.abspath(out_path)}")
 
 
 def run(argv: list[str] | None = None) -> None:
     """Console-script entry point.
 
-    Configuration is collected interactively; ``--help``/``--version`` return
-    immediately without prompting so the command is well-behaved in scripts and
-    package smoke tests.
+    With no subcommand, runs the interactive spreadsheet loader. ``web`` starts
+    the local web UI. ``--help``/``--version`` return without prompting.
     """
     parser = argparse.ArgumentParser(
         prog="rossum-user-loader",
         description="Bulk-load users into Rossum from a spreadsheet.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.parse_args(argv)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("web", help="Launch the local web UI to prepare and load the user batch")
+    args = parser.parse_args(argv)
+
+    if args.command == "web":
+        from rossum_user_loader.web import launcher
+
+        launcher.launch()
+        return
 
     config = gather_config()
     asyncio.run(load_users(config))

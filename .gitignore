@@ -219,3 +219,6 @@ __marimo__/
 
 TASKS.md
 docs
+# Local CLI run artifacts
+load.csv
+user_load_*.csv

@@ -7,7 +7,7 @@ rows straight in without touching this module.
 
 from __future__ import annotations
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 
 def read_rows(file_path: str, sheet_name: str, required_columns) -> list[dict]:
@@ -53,30 +53,3 @@ def read_rows(file_path: str, sheet_name: str, required_columns) -> list[dict]:
 
     workbook.close()
     return rows
-
-
-def write_log(path: str, records: list[dict]) -> str:
-    """Write log records to ``<path>.xlsx`` and return the final path."""
-    out_path = f"{path}.xlsx"
-    workbook = Workbook()
-    worksheet = workbook.active
-
-    # Header = union of all keys, preserving first-seen order.
-    columns: list[str] = []
-    for record in records:
-        for key in record:
-            if key not in columns:
-                columns.append(key)
-
-    worksheet.append(columns)
-    for record in records:
-        worksheet.append([_stringify(record.get(col, "")) for col in columns])
-
-    workbook.save(out_path)
-    return out_path
-
-
-def _stringify(value) -> str:
-    if isinstance(value, list):
-        return "\n".join(str(v) for v in value)
-    return str(value)

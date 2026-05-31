@@ -1,0 +1,3 @@
+auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve
+password;jane.doe@example.com;Jane;Doe;;leave blank to default to email;annotator;"123456
+789012";yes

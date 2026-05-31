@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rossum User Loader</title>
+  <style>
+    :root { --dj-header: #417690; --dj-accent: #79aec8; --dj-accent-dark: #609ab6; --dj-line: #e0e0e0; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", Roboto, system-ui, sans-serif; margin: 0; color: #303030; background: #fff; }
+
+    /* Header (Django-admin style) */
+    .dj-header { background: var(--dj-header); color: #fff; display: flex; align-items: stretch; padding: 0 1.5rem; }
+    .dj-title { font-size: 18px; font-weight: 600; letter-spacing: .3px; display: flex; align-items: center;
+      padding-right: 1.5rem; margin-right: .25rem; border-right: 1px solid rgba(255,255,255,.25); }
+    .dj-nav { display: flex; }
+    .dj-nav button { background: transparent; color: rgba(255,255,255,.85); border: none;
+      border-bottom: 3px solid transparent; padding: 1rem 1.2rem; cursor: pointer; font-size: 14px; }
+    .dj-nav button:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .dj-nav button.active { color: #fff; font-weight: 700; border-bottom-color: #fff; background: rgba(255,255,255,.08); }
+
+    /* Breadcrumbs */
+    .breadcrumbs { background: #f8f8f8; border-bottom: 1px solid #eaeaea; padding: .5rem 1.25rem;
+      font-size: 13px; color: #888; }
+    .breadcrumbs a { color: #447e9b; text-decoration: none; }
+    .breadcrumbs a:hover { text-decoration: underline; }
+
+    /* Full-width content with comfortable gutters. */
+    .content { padding: 1.25rem 2rem 2.5rem; width: 100%; }
+
+    /* Modules (cards) */
+    .module { border: 1px solid var(--dj-line); border-radius: 4px; margin-bottom: 1.25rem; overflow: hidden; }
+    .module > h2 { margin: 0; background: var(--dj-accent); color: #fff; font-size: 12px; font-weight: 700;
+      letter-spacing: .6px; text-transform: uppercase; padding: .5rem .8rem; }
+    .module-content { padding: .8rem; }
+
+    /* Buttons */
+    .button { display: inline-block; background: var(--dj-accent); color: #fff; border: none; border-radius: 4px;
+      padding: .4rem .8rem; font-size: 13px; cursor: pointer; text-decoration: none; }
+    .button:hover { background: var(--dj-accent-dark); }
+    .button.secondary { background: #eef2f5; color: #2b4b5a; }
+    .button.secondary:hover { background: #dfe7ec; }
+
+    /* Data source layout */
+    .ds-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0 0 .6rem; }
+    .ds-file input[type="file"] { font-size: 13px; }
+    details summary { cursor: pointer; color: #447e9b; font-size: 13px; }
+    #paste { width: 100%; margin: .4rem 0; font-size: 13px; }
+    .ds-paste-actions { display: flex; gap: .5rem; }
+
+    /* Toolbar attached to the table */
+    .table-toolbar { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+      background: #f8f8f8; border-bottom: 1px solid var(--dj-line); padding: .5rem .7rem; font-size: 13px; }
+    .table-toolbar .spacer { flex: 1 1 auto; }
+    .table-toolbar .num { width: 4rem; }
+    .table-toolbar input, .table-toolbar select { font-size: 13px; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid var(--dj-line); padding: 3px 5px; font-size: 13px; vertical-align: top; }
+    th { background: #eef3f6; color: #2b4b5a; font-weight: 600; text-align: left; white-space: nowrap; }
+    td input, td select, td textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+
+    .module-foot { padding: .6rem .8rem; }
+
+    /* Prominent submit row (very distinguished) */
+    .submit-row { background: #f8f8f8; border: 1px solid var(--dj-line); border-radius: 4px;
+      padding: .8rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: flex-end; gap: 1rem; }
+    .submit-row .hint { color: #777; font-size: 13px; margin-right: auto; }
+    .start-load { background: #2e7d32; color: #fff; border: none; border-radius: 5px;
+      padding: .75rem 1.8rem; font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+    .start-load:hover { background: #1b5e20; }
+
+    .pane { display: none; }
+    .pane.active { display: block; }
+    #status { margin: .6rem 0; font-weight: 600; }
+    .ok { color: #137333; } .err { color: #b00020; }
+
+    /* Row state highlights */
+    tr.dup td { background: #fdecea; }
+    tr.dup input[data-col="username"], tr.dup input[data-col="email"] { border: 1px solid #b00020; }
+    tr.warn td { background: #fff4e5; }
+    tr.patch td { background: #e7f3ff; }
+    tr.dupinlist td { background: #ffe0b2; }
+    tr.dupinlist input[data-col="username"], tr.dupinlist input[data-col="email"] { border: 1px solid #e65100; }
+    #dupwarn { margin: .2rem 0; color: #b00020; font-weight: 600; }
+    #dupwarn div { margin: .15rem 0; }
+    .actions-col { white-space: nowrap; }
+
+    /* Searchable queue widget */
+    .queue-widget { min-width: 12rem; }
+    .q-list { max-height: 4.5rem; overflow-y: auto; border: 1px solid var(--dj-line); margin-top: 2px; }
+    .q-list label { display: block; white-space: nowrap; cursor: pointer; padding: 0 2px; font-weight: normal; }
+    .q-list input[type="checkbox"] { width: auto; margin-right: 4px; }
+    .q-unmatched { color: #b00020; font-size: 12px; margin-top: 2px; }
+
+    /* Bulk "Set all queues" popover (mirrors per-row queue widget). */
+    .bulk-queues { position: relative; }
+    .bulk-queues > summary { cursor: pointer; color: #2b4b5a; }
+    .bulk-queues-body { position: absolute; right: 0; top: 1.7rem; z-index: 20; width: 18rem;
+      background: #fff; border: 1px solid var(--dj-line); border-radius: 4px; padding: .5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+    .bulk-queues-body #bulk-queue-search { width: 100%; }
+    .bulk-queues-body .button { margin-top: .4rem; }
+  </style>
+</head>
+<body>
+  <header class="dj-header">
+    <div class="dj-title">Rossum User Loader</div>
+    <nav class="dj-nav">
+      <button id="tab-load" class="active" onclick="showPane('load')">Load Users</button>
+      <button id="tab-existing" onclick="showPane('existing')">Existing Users</button>
+    </nav>
+  </header>
+
+  <div class="breadcrumbs">
+    <a href="#" onclick="showPane('load');return false;">Home</a>
+    &rsaquo; <span id="crumb-current">Load users</span>
+  </div>
+
+  <main class="content">
+    <section id="pane-load" class="pane active">
+
+      <div class="module">
+        <h2>Data source</h2>
+        <div class="module-content">
+          <div class="ds-row">
+            <a class="button" href="/template.csv">⬇ Download CSV template</a>
+            <label class="ds-file">Load from CSV file:
+              <input type="file" id="csvfile" accept=".csv,text/csv" onchange="loadCsvFile(this)">
+            </label>
+          </div>
+          <details>
+            <summary>…or paste rows (semicolon ";" separated; column order must match the template header)</summary>
+            <textarea id="paste" rows="4" placeholder="auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve"></textarea>
+            <div class="ds-paste-actions">
+              <button class="button" onclick="importPaste()">Import paste</button>
+              <button class="button secondary" onclick="document.getElementById('paste').value=''">Clear paste</button>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="module">
+        <h2>Users to process</h2>
+        <div class="table-toolbar">
+          <label>Add <input id="nrows" type="number" value="1" min="1" max="100" class="num"> row(s) <small>(max 100)</small></label>
+          <button class="button" onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
+          <span class="spacer"></span>
+          <details class="bulk-queues">
+            <summary>Set all queues…</summary>
+            <div class="bulk-queues-body">
+              <input type="text" id="bulk-queue-search" placeholder="search queues…">
+              <div id="bulk-queue-list" class="q-list"></div>
+              <button class="button" onclick="applyQueuesToAll()">Apply queues to all rows</button>
+            </div>
+          </details>
+          <label>Set all actions:
+            <select onchange="if(this.value){setAllActions(this.value);} this.value='';">
+              <option value="">—</option>
+              <option value="create">Create</option>
+              <option value="patch">Patch</option>
+            </select>
+          </label>
+          <button class="button secondary" onclick="clearGrid()">Clear all rows</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>auth_type</th><th>email</th><th>first_name</th><th>last_name</th>
+                <th>username</th><th>oidc_id</th><th>role</th><th>queue_ids</th><th>can_approve</th><th>action</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="grid"></tbody>
+          </table>
+        </div>
+        <div class="module-foot">
+          <div id="dupwarn" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="submit-row">
+        <span class="hint">Review the rows above, then start the load. This writes to Rossum.</span>
+        <button class="start-load" onclick="confirmAndStart()">▶ Start Load</button>
+      </div>
+
+      <div id="status"></div>
+      <div id="results"></div>
+      <p><a id="loglink" class="button secondary" href="/log.csv" style="display:none">⬇ Download log (CSV)</a></p>
+    </section>
+
+    <section id="pane-existing" class="pane">
+      <div class="module">
+        <h2>Existing users</h2>
+        <div class="table-toolbar">
+          <button class="button" onclick="copyAllExisting()">Copy all to load list (as patch)</button>
+          <span class="hint">Copied rows default to the <b>patch</b> action so you can update existing users.</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
+            <tbody>
+              {% for u in existing %}
+              <tr>
+                  <td class="actions-col"><button type="button" class="button secondary" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
+                  <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+                  <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ROLES = {{ roles | tojson }};
+    const QUEUES = {{ queues | tojson }};
+    const EXISTING = {{ existing | tojson }};
+    const EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
+    const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
+    // Client-side limits (mirror server-side validation.py; server is authoritative).
+    const MAX_ADD_ROWS = 100;
+    const MAX_ROWS = 1000;
+    const MAX_CSV_BYTES = 2 * 1024 * 1024;  // 2 MB
+
+    function showPane(name) {
+      const isLoad = name === 'load';
+      document.getElementById('pane-load').classList.toggle('active', isLoad);
+      document.getElementById('pane-existing').classList.toggle('active', !isLoad);
+      document.getElementById('tab-load').classList.toggle('active', isLoad);
+      document.getElementById('tab-existing').classList.toggle('active', !isLoad);
+      document.getElementById('crumb-current').textContent = isLoad ? 'Load users' : 'Existing users';
+    }
+
+    function roleSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'role';
+      ROLES.forEach(r => {
+        const o = document.createElement('option');
+        o.value = r.name; o.textContent = r.name;
+        if (r.name === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function queueSelect(ids) {
+      // Searchable multi-select: a filter box narrows the checkbox list by queue
+      // name or id; checkboxes keep multi-selection. Selected ids are read on
+      // submit (collectRows) and stored "one id per line".
+      //
+      // Incoming tokens (from CSV/paste, newline- or comma-separated) may be
+      // queue IDs OR queue NAMES (case-insensitive). Names can contain spaces,
+      // so we do NOT split on spaces. Tokens that match no org queue are shown
+      // so the user knows why a queue wasn't assigned.
+      const tokens = (ids || '').split(/[\n,]+/).map(t => t.trim()).filter(Boolean);
+      const wantedIds = new Set();
+      const unmatched = [];
+      tokens.forEach(tok => {
+        const q = QUEUES.find(
+          x => String(x.id) === tok || (x.name || '').toLowerCase() === tok.toLowerCase()
+        );
+        if (q) wantedIds.add(String(q.id)); else unmatched.push(tok);
+      });
+
+      const wrap = document.createElement('div');
+      wrap.className = 'queue-widget';
+      wrap.dataset.col = 'queue_ids';
+
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.className = 'q-search';
+      search.placeholder = 'search queues…';
+
+      const list = document.createElement('div');
+      list.className = 'q-list';
+      QUEUES.forEach(q => {
+        const label = document.createElement('label');
+        label.dataset.search = (q.name + ' ' + q.id).toLowerCase();
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = String(q.id);
+        if (wantedIds.has(String(q.id))) cb.checked = true;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + q.name + ' (' + q.id + ')'));
+        list.appendChild(label);
+      });
+
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        list.querySelectorAll('label').forEach(l => {
+          l.style.display = (!term || l.dataset.search.indexOf(term) >= 0) ? '' : 'none';
+        });
+      });
+
+      wrap.appendChild(search);
+      wrap.appendChild(list);
+      if (unmatched.length) {
+        const note = document.createElement('div');
+        note.className = 'q-unmatched';
+        note.textContent = '⚠ not found in this org: ' + unmatched.join(', ');
+        wrap.appendChild(note);
+      }
+      return wrap;
+    }
+
+    function approveSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'can_approve';
+      ['no', 'yes'].forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function authSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'auth_type';
+      ['password', 'sso'].forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      return s;
+    }
+
+    function actionSelect(value) {
+      const s = document.createElement('select');
+      s.dataset.col = 'action';
+      [['create', 'create'], ['patch', 'patch']].forEach(([v, label]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = label;
+        if (v === value) o.selected = true;
+        s.appendChild(o);
+      });
+      // Action affects whether a duplicate is skipped or patched — re-check.
+      s.addEventListener('change', refreshDupWarning);
+      return s;
+    }
+
+    function setAllActions(value) {
+      document.querySelectorAll('#grid select[data-col="action"]').forEach(s => { s.value = value; });
+      refreshDupWarning();
+    }
+
+    function addRow(vals) {
+      vals = vals || {};
+      const tr = document.createElement('tr');
+      tr.appendChild(td(authSelect(vals.auth_type || 'password')));
+      TEXT_COLS.forEach(col => {
+        const inp = document.createElement('input');
+        inp.dataset.col = col; inp.value = vals[col] || '';
+        // username (and email, since username defaults to email) drive the
+        // duplicate check — re-evaluate as the user types.
+        if (col === 'username' || col === 'email') {
+          inp.addEventListener('input', refreshDupWarning);
+        }
+        const cell = td(inp);
+        tr.appendChild(cell);
+      });
+      tr.appendChild(td(roleSelect(vals.role || (ROLES[0] && ROLES[0].name) || '')));
+      tr.appendChild(td(queueSelect(vals.queue_ids || '')));
+      tr.appendChild(td(approveSelect(vals.can_approve || 'no')));
+      tr.appendChild(td(actionSelect(vals.action || 'create')));
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '✕';
+      del.title = 'Remove this row';
+      del.onclick = () => { tr.remove(); refreshDupWarning(); };
+      tr.appendChild(td(del));
+      document.getElementById('grid').appendChild(tr);
+    }
+
+    function td(child) { const c = document.createElement('td'); c.appendChild(child); return c; }
+    function gridCount() { return document.querySelectorAll('#grid tr').length; }
+    function addRows(n) {
+      // Guard against non-numeric / scripted / out-of-range input.
+      n = Math.floor(Number(n));
+      if (!Number.isFinite(n) || n < 1) n = 1;
+      if (n > MAX_ADD_ROWS) n = MAX_ADD_ROWS;
+      for (let i = 0; i < n && gridCount() < MAX_ROWS; i++) addRow();
+      refreshDupWarning();
+    }
+    function clearGrid() {
+      document.getElementById('grid').innerHTML = '';
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('status').textContent = '';
+      document.getElementById('loglink').style.display = 'none';
+      refreshDupWarning();
+    }
+
+    function existingToRow(u) {
+      const roleNames = u.role_names || [];
+      const role = roleNames.find(r => ROLES.some(x => x.name === r))
+        || roleNames[0] || (ROLES[0] && ROLES[0].name) || '';
+      const canApprove = roleNames.indexOf('approver') >= 0 ? 'yes' : 'no';
+      const qIds = (u.queue_names || [])
+        .map(n => { const q = QUEUES.find(x => x.name === n); return q ? String(q.id) : null; })
+        .filter(Boolean);
+      return {
+        auth_type: 'password', email: u.email || '', first_name: u.first_name || '',
+        last_name: u.last_name || '', username: u.username || '', oidc_id: '',
+        role: role, queue_ids: qIds.join('\n'), can_approve: canApprove, action: 'patch',
+      };
+    }
+
+    function copyExisting(i) { addRow(existingToRow(EXISTING[i])); refreshDupWarning(); showPane('load'); }
+    function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
+
+    function effUsername(tr) {
+      const get = (col) => {
+        const el = tr.querySelector('[data-col="' + col + '"]');
+        return el ? el.value.trim() : '';
+      };
+      // Mirrors the back-end: username, or email when username is blank.
+      return (get('username') || get('email')).toLowerCase();
+    }
+
+    function rowAction(tr) {
+      const sel = tr.querySelector('[data-col="action"]');
+      return sel ? sel.value : 'create';
+    }
+
+    function refreshDupWarning() {
+      const trs = Array.from(document.querySelectorAll('#grid tr'));
+      // Count effective usernames across the grid to flag in-list duplicates.
+      const counts = {};
+      trs.forEach(tr => { const u = effUsername(tr); if (u) counts[u] = (counts[u] || 0) + 1; });
+
+      let skip = 0, badPatch = 0, inList = 0;
+      trs.forEach(tr => {
+        const u = effUsername(tr);
+        const existsInRossum = !!u && EXISTING_USERNAMES.has(u);
+        const action = rowAction(tr);
+        const dupInList = !!u && counts[u] > 1;
+        const willSkip = existsInRossum && action === 'create';
+        const willPatch = existsInRossum && action === 'patch';
+        const patchNoTarget = !!u && !existsInRossum && action === 'patch';
+
+        tr.classList.toggle('dup', willSkip);
+        tr.classList.toggle('patch', willPatch && !dupInList);
+        tr.classList.toggle('warn', patchNoTarget && !dupInList);
+        tr.classList.toggle('dupinlist', dupInList);
+
+        const titles = [];
+        if (dupInList) {
+          inList++;
+          titles.push('This username appears in more than one row of the list — duplicate entry within the batch.');
+        }
+        if (willSkip) {
+          skip++;
+          titles.push('A user with this username already exists. With action "create" this row '
+            + 'will be SKIPPED — switch its action to "patch" to UPDATE the existing user instead.');
+        } else if (patchNoTarget) {
+          badPatch++;
+          titles.push('No existing user with this username — a "patch" row will fail (nothing to update).');
+        } else if (willPatch) {
+          titles.push('This will UPDATE (patch) the existing user.');
+        }
+        const title = titles.join(' ');
+        ['username', 'email'].forEach(col => {
+          const el = tr.querySelector('[data-col="' + col + '"]');
+          if (el) el.title = title;
+        });
+      });
+
+      const warn = document.getElementById('dupwarn');
+      warn.innerHTML = '';
+      const msgs = [];
+      if (inList) {
+        msgs.push('⚠ ' + inList + ' row(s) share a username with another row in the list '
+          + '(duplicate within this batch).');
+      }
+      if (skip) {
+        msgs.push('⚠ ' + skip + ' row(s) match an existing user and will be SKIPPED. '
+          + 'To update an existing user instead, set that row’s action to "patch".');
+      }
+      if (badPatch) {
+        msgs.push('⚠ ' + badPatch + ' "patch" row(s) have no matching existing user and will fail.');
+      }
+      msgs.forEach(m => { const d = document.createElement('div'); d.textContent = m; warn.appendChild(d); });
+      warn.style.display = msgs.length ? 'block' : 'none';
+    }
+
+    const HEADER = ["auth_type","email","first_name","last_name","username","oidc_id","role","queue_ids","can_approve"];
+    const DELIM = ';';
+
+    // Minimal RFC-4180-style parser: handles quoted fields with embedded
+    // delimiters/newlines (e.g. a multi-line queue_ids cell) and "" escapes.
+    function parseDelimited(text) {
+      const rows = [];
+      let row = [], field = '', inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+          } else { field += c; }
+        } else if (c === '"') {
+          inQuotes = true;
+        } else if (c === DELIM) {
+          row.push(field); field = '';
+        } else if (c === '\r') {
+          // ignore
+        } else if (c === '\n') {
+          row.push(field); rows.push(row); row = []; field = '';
+        } else {
+          field += c;
+        }
+      }
+      if (field !== '' || row.length) { row.push(field); rows.push(row); }
+      return rows;
+    }
+
+    function importDelimited(text) {
+      const parsed = parseDelimited(text).filter(r => r.some(c => c.trim() !== ''));
+      if (!parsed.length) return;
+      // Skip a header row if the first line looks like the template header.
+      let start = 0;
+      const first = parsed[0].map(c => c.trim().toLowerCase());
+      if (first.includes('email') && first.includes('auth_type')) start = 1;
+      let capped = false;
+      for (let i = start; i < parsed.length; i++) {
+        if (gridCount() >= MAX_ROWS) { capped = true; break; }
+        const cells = parsed[i];
+        const vals = {};
+        HEADER.forEach((col, j) => { vals[col] = (cells[j] || '').trim(); });
+        addRow(vals);
+      }
+      if (capped) alert('Row limit reached (' + MAX_ROWS + '). Remaining rows were not imported.');
+      refreshDupWarning();
+    }
+
+    function importPaste() {
+      const text = document.getElementById('paste').value;
+      if (!text.trim()) return;
+      importDelimited(text);
+    }
+
+    function loadCsvFile(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      // Only accept CSV: require a .csv name and a CSV-ish (or empty/text) MIME.
+      const isCsvName = /\.csv$/i.test(file.name);
+      const okType = file.type === '' || /csv|excel|text\/plain/i.test(file.type);
+      if (!isCsvName || !okType) { alert('Please choose a .csv file.'); input.value = ''; return; }
+      if (file.size > MAX_CSV_BYTES) {
+        alert('CSV file is too large (max ' + (MAX_CSV_BYTES / 1048576) + ' MB).');
+        input.value = ''; return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => { importDelimited(String(reader.result)); input.value = ''; };
+      reader.readAsText(file);
+    }
+
+    function collectRows() {
+      const rows = [];
+      document.querySelectorAll('#grid tr').forEach(tr => {
+        const row = {};
+        tr.querySelectorAll('[data-col]').forEach(el => {
+          if (el.dataset.col === 'queue_ids') {
+            // Searchable checkbox widget: gather checked queue ids.
+            const ids = Array.from(el.querySelectorAll('input[type="checkbox"]:checked'))
+              .map(c => c.value);
+            row.queue_ids = ids.join('\n');
+          } else {
+            row[el.dataset.col] = (el.value || '').trim();
+          }
+        });
+        rows.push(row);
+      });
+      return rows;
+    }
+
+    function confirmAndStart() {
+      const n = document.querySelectorAll('#grid tr').length;
+      if (n === 0) {
+        alert('No rows to load — add rows, load a CSV, or paste data first.');
+        return;
+      }
+      const ok = window.confirm(
+        'Start loading ' + n + ' row(s)?\n\n'
+        + 'This will CREATE and/or PATCH users in Rossum and cannot be undone. Continue?');
+      if (ok) startLoad();
+    }
+
+    async function startLoad() {
+      const rows = collectRows();
+      const status = document.getElementById('status');
+      status.textContent = 'Loading ' + rows.length + ' user(s)...';
+      try {
+        const resp = await fetch('/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows })
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          const span = document.createElement('span');
+          span.className = 'err';
+          span.textContent = 'Load failed: ' + (data.error || resp.status);
+          status.innerHTML = '';
+          status.appendChild(span);
+          return;
+        }
+        const s = data.summary;
+        status.innerHTML = '<span class="ok">Created ' + s.created + '</span>, ' +
+          '<span class="ok">patched ' + (s.patched || 0) + '</span>, skipped ' + s.skipped +
+          ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
+        renderResults(data.records);
+        document.getElementById('loglink').style.display = 'inline-block';
+      } catch (e) {
+        status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
+      }
+    }
+
+    function renderResults(records) {
+      const div = document.getElementById('results');
+      div.innerHTML = '';
+      const h = document.createElement('h3');
+      h.textContent = 'Results';
+      div.appendChild(h);
+      records.forEach(r => {
+        const who = r.username || r.email || '';
+        const line = document.createElement('div');
+        line.textContent = (r.Messages || '') + (who ? ' — ' + who : '');
+        div.appendChild(line);
+      });
+    }
+
+    // --- Bulk "Set all queues": pick queues once, apply to every row ---
+    function buildBulkQueues() {
+      const list = document.getElementById('bulk-queue-list');
+      const search = document.getElementById('bulk-queue-search');
+      if (!list || !search) return;
+      QUEUES.forEach(q => {
+        const label = document.createElement('label');
+        label.dataset.search = (q.name + ' ' + q.id).toLowerCase();
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = String(q.id);
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + q.name + ' (' + q.id + ')'));
+        list.appendChild(label);
+      });
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        list.querySelectorAll('label').forEach(l => {
+          l.style.display = (!term || l.dataset.search.indexOf(term) >= 0) ? '' : 'none';
+        });
+      });
+    }
+
+    function applyQueuesToAll() {
+      const wanted = new Set(
+        Array.from(document.querySelectorAll('#bulk-queue-list input[type="checkbox"]:checked'))
+          .map(c => c.value)
+      );
+      const widgets = document.querySelectorAll('#grid .queue-widget');
+      if (!widgets.length) { alert('No rows yet — add or load rows first.'); return; }
+      widgets.forEach(w => {
+        w.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = wanted.has(cb.value); });
+      });
+    }
+
+    buildBulkQueues();
+    // Start empty — rows are added only when the user presses "Add".
+  </script>
+</body>
+</html>

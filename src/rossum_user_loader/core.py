@@ -22,11 +22,25 @@ SUPPORTED_COLUMNS = {
     "email": "",
     "first_name": "",
     "last_name": "",
+    "username": "",
     "oidc_id": "",
     "role": "",
     "queue_ids": "",
     "can_approve": "",
 }
+
+# Columns that MUST be present in an input file. `username` is optional (it
+# defaults to the email), so legacy templates without it still load.
+REQUIRED_COLUMNS = (
+    "auth_type",
+    "email",
+    "first_name",
+    "last_name",
+    "oidc_id",
+    "role",
+    "queue_ids",
+    "can_approve",
+)
 
 
 class _ResourceHotFix(Enum):
@@ -48,7 +62,7 @@ def prepare_user_data(row: dict, organization: str, org_groups: list, org_queues
 
     payload["oidc_id"] = row.get("oidc_id") or row.get("email", "")
     payload["auth_type"] = row.get("auth_type", "")
-    payload["username"] = row.get("email", "")
+    payload["username"] = row.get("username") or row.get("email", "")
     payload["email"] = row.get("email", "")
     payload["first_name"] = row.get("first_name", "")
     payload["last_name"] = row.get("last_name", "")
@@ -101,7 +115,8 @@ async def list_active_users(client: AsyncRossumAPIClient) -> list[dict]:
             actual_users.append(
                 {
                     "id": user.id,
-                    "email": user.username,
+                    "username": user.username,
+                    "email": user.email,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "groups": user.groups,
@@ -140,6 +155,120 @@ async def reset_password(client: AsyncRossumAPIClient, email: str):
     )
 
 
+async def patch_user(client: AsyncRossumAPIClient, user_id: int, payload: dict):
+    """Update (PATCH) an existing user. Returns the API response.
+
+    The SDK has no first-class user-update helper, so we use the internal HTTP
+    client's generic update against the User resource (same mechanism as the
+    password-reset hot-fix above)."""
+    from rossum_api.models import Resource
+
+    return await client._http_client.update(Resource.User, user_id, payload)
+
+
+def _emit(on_result, level: str, message: str) -> None:
+    if on_result is not None:
+        on_result(level, message)
+
+
+async def _patch_one(client, user_data, existing_by_username, logger, on_result) -> None:
+    """Patch an existing user matched by username (roles, queues, names)."""
+    key = user_data["username"].lower().strip()
+    existing = existing_by_username.get(key)
+    if not existing or not existing.get("id"):
+        _emit(on_result, "error", f"Cannot patch - no existing user '{user_data['username']}'")
+        logger.add("Error - patch failed - no existing user", **user_data)
+        return
+
+    patch_payload = {
+        "first_name": user_data["first_name"],
+        "last_name": user_data["last_name"],
+        "groups": user_data["groups"],
+        "queues": user_data["queues"],
+    }
+    _emit(on_result, "info", f"Patching User: {user_data['username']}")
+    try:
+        response = await patch_user(client, existing["id"], patch_payload)
+        logger.add(f"User patched - {response}", **user_data)
+        _emit(on_result, "ok", f"User patched - {user_data['username']}")
+    except Exception as exc:  # noqa: BLE001
+        logger.add(f"Error - user not patched - {exc}", **user_data)
+        _emit(on_result, "error", f"ERROR - user not patched - {exc}")
+
+
+async def run_load(
+    client: AsyncRossumAPIClient,
+    rows: list[dict],
+    organization: str,
+    org_groups: list,
+    org_queues: list,
+    existing_users: list[dict],
+    on_result=None,
+) -> "Logger":
+    """Create or patch each row's user (per-row ``action``), keyed by username.
+
+    ``row["action"]`` is ``"create"`` (default) or ``"patch"``. Create skips a
+    row whose username already exists; patch updates the matching existing user
+    (roles, queues, names). Continues past per-user failures, recording every
+    outcome in the returned Logger. ``on_result(level, message)`` — if given — is
+    called per event for live console output; the web layer omits it. Callers
+    pass the final rows (any template example row is dropped before calling).
+    """
+    logger = Logger()
+    existing_by_username = {
+        (u.get("username") or "").lower().strip(): u for u in existing_users
+    }
+
+    for row in rows:
+        action = (row.get("action") or "create").strip().lower()
+        try:
+            user_data = prepare_user_data(row, organization, org_groups, org_queues)
+        except ValueError as exc:
+            _emit(on_result, "skip", f"Skipping row - {exc}")
+            logger.add(f"Error - invalid user data - {exc}", email=row.get("email", ""))
+            continue
+
+        if action == "patch":
+            await _patch_one(client, user_data, existing_by_username, logger, on_result)
+            continue
+
+        if user_data["auth_type"] not in ("sso", "password") or not user_data["email"]:
+            _emit(on_result, "skip", f"Check user data entry - {user_data['email']}")
+            logger.add("Error-check user data entry. No required fields.", **user_data)
+            continue
+
+        if user_data["username"].lower().strip() in existing_by_username:
+            _emit(
+                on_result,
+                "skip",
+                f"User Exists - {user_data['username']} "
+                "(set this row's action to 'patch' to update the existing user)",
+            )
+            logger.add("Skipped-User Exists", **user_data)
+            continue
+
+        _emit(on_result, "info", f"Creating User: {user_data['email']}")
+        try:
+            response = await create_user(client, user_data)
+            logger.add(f"User created - {response}", **user_data)
+            _emit(on_result, "ok", f"User created - {user_data['email']}")
+        except Exception as exc:  # noqa: BLE001
+            logger.add(f"Error - user not created - {exc}", **user_data)
+            _emit(on_result, "error", f"ERROR - user not created - {exc}")
+            continue
+
+        if user_data["auth_type"] == "password":
+            try:
+                response = await reset_password(client, user_data["email"])
+                logger.add(f"Password reset - {response}", **user_data)
+                _emit(on_result, "ok", f"Password reset for {user_data['email']}")
+            except Exception as exc:  # noqa: BLE001
+                logger.add(f"Error - password reset failed - {exc}", **user_data)
+                _emit(on_result, "error", f"Password reset failed - {exc}")
+
+    return logger
+
+
 class Logger:
     """Accumulates structured log records for export."""
 
@@ -153,3 +282,29 @@ class Logger:
 
     def get(self) -> list[dict]:
         return self.log
+
+
+def summarize(records: list[dict]) -> dict:
+    """Count outcomes from a list of log records by their message prefix.
+
+    ``total`` reconciles with created+patched+skipped+errors; password-reset
+    bookkeeping records are excluded from the error count (the user itself was
+    already created and counted)."""
+    def msg(r):
+        return str(r.get("Messages", ""))
+
+    created = sum(1 for r in records if msg(r).startswith("User created"))
+    patched = sum(1 for r in records if msg(r).startswith("User patched"))
+    skipped = sum(1 for r in records if "Skipped" in msg(r) or "Skipping" in msg(r))
+    errors = sum(
+        1
+        for r in records
+        if msg(r).startswith("Error") and "password reset" not in msg(r).lower()
+    )
+    return {
+        "total": created + patched + skipped + errors,
+        "created": created,
+        "patched": patched,
+        "skipped": skipped,
+        "errors": errors,
+    }
