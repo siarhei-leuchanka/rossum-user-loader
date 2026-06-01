@@ -76,3 +76,24 @@ def test_validate_rows_rejects_oversized_field():
 def test_validate_rows_rejects_non_dict_row():
     with pytest.raises(v.ValidationError):
         v.validate_rows(["notadict"])
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "a b", "u\nser", "x" * (v.MAX_USERNAME_LEN + 1)])
+def test_validate_username_rejects(bad):
+    with pytest.raises(v.ValidationError):
+        v.validate_username(bad)
+
+
+def test_validate_username_ok():
+    assert v.validate_username("  jane@corp.com ") == "jane@corp.com"
+
+
+@pytest.mark.parametrize("bad", ["", "pw\nwith-newline", "x" * (v.MAX_PASSWORD_LEN + 1)])
+def test_validate_password_rejects(bad):
+    with pytest.raises(v.ValidationError):
+        v.validate_password(bad)
+
+
+def test_validate_password_allows_spaces_and_symbols_unstripped():
+    # Passwords are not stripped and may contain spaces/symbols.
+    assert v.validate_password("  s p a c e $#@! ") == "  s p a c e $#@! "

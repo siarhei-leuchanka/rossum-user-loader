@@ -45,11 +45,10 @@ class Backend:
     async def _client_on_loop(self):
         if self._client is None:
             from rossum_api import AsyncRossumAPIClient
-            from rossum_api.dtos import Token
 
             self._client = AsyncRossumAPIClient(
                 base_url=self._conn["domain"],
-                credentials=Token(token=self._conn["token"]),
+                credentials=self._conn["credentials"],
             )
         return self._client
 

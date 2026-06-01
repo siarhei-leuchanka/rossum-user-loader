@@ -1,4 +1,13 @@
+import pytest
+
 from rossum_user_loader import cli, core
+
+
+@pytest.fixture(autouse=True)
+def _no_network_verify(monkeypatch):
+    # Token verification makes a real API call; stub it out by default so the
+    # connection tests stay offline. Tests that care override it.
+    monkeypatch.setattr(cli.core, "verify_credentials", lambda domain, token: None)
 
 
 def test_console_reporter_applies_level_colors(capsys):
@@ -19,28 +28,56 @@ def test_export_log_writes_csv_next_to_input(tmp_path):
     assert len(written) == 1
 
 
-def test_gather_connection_builds_organization(monkeypatch):
-    # Token is read via getpass (hidden), not input.
-    answers = iter(["https://x.rossum.app/api/v1", "42"])
-    monkeypatch.setenv("ROSSUM_API_TOKEN", "")  # force prompt path
-    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
-    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+def test_gather_connection_default_token_selection(monkeypatch):
+    # Default auth method is token: press Enter at the selection, enter token (hidden).
+    from rossum_api.dtos import Token
+    inputs = iter(["https://x.rossum.app/api/v1", "", "42"])  # domain, auth-choice (blank=token), org
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TYPED-TOKEN")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
     conn = cli.gather_connection()
-    assert conn["token"] == "TOKEN"
+    assert isinstance(conn["credentials"], Token)
+    assert conn["credentials"].token == "TYPED-TOKEN"
     assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
 
 
-def test_gather_connection_token_from_env_skips_getpass(monkeypatch):
-    answers = iter(["https://x.rossum.app/api/v1", "42"])
+def test_gather_connection_username_password_generates_token(monkeypatch):
+    # Choosing 'U' exchanges username+password for a token via /auth/login.
+    from rossum_api.dtos import Token
+    inputs = iter(["https://x.rossum.app/api/v1", "u", "jane@corp.com", "42"])  # domain, choice, username, org
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "s3cret")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
+    captured = {}
+
+    def fake_gen(domain, username, password):
+        captured.update(domain=domain, username=username, password=password)
+        return "GEN-TOKEN"
+
+    monkeypatch.setattr(cli.core, "generate_token", fake_gen)
+    conn = cli.gather_connection()
+    assert isinstance(conn["credentials"], Token)
+    assert conn["credentials"].token == "GEN-TOKEN"
+    assert captured == {
+        "domain": "https://x.rossum.app/api/v1",
+        "username": "jane@corp.com",
+        "password": "s3cret",
+    }
+
+
+def test_gather_connection_env_token_skips_selection(monkeypatch):
+    from rossum_api.dtos import Token
+    inputs = iter(["https://x.rossum.app/api/v1", "42"])  # domain, org (no selection / no getpass)
     monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
 
     def _boom(*a, **k):
         raise AssertionError("getpass must not be called when an env token is set")
 
     monkeypatch.setattr(cli.getpass, "getpass", _boom)
-    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
     conn = cli.gather_connection()
-    assert conn["token"] == "ENVTOKEN"
+    assert isinstance(conn["credentials"], Token)
+    assert conn["credentials"].token == "ENVTOKEN"
 
 
 def test_run_web_subcommand_invokes_launcher(monkeypatch):
@@ -52,19 +89,19 @@ def test_run_web_subcommand_invokes_launcher(monkeypatch):
 
 
 def test_gather_connection_reprompts_on_bad_org_id(monkeypatch):
-    answers = iter(["https://x.rossum.app/api/v1", "abc", "42"])
-    monkeypatch.setenv("ROSSUM_API_TOKEN", "")
-    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
-    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    inputs = iter(["https://x.rossum.app/api/v1", "", "abc", "42"])  # domain, token-choice, bad org, good org
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TKN")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
     conn = cli.gather_connection()
     assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
 
 
 def test_gather_connection_reprompts_on_bad_url(monkeypatch):
-    answers = iter(["ftp://nope", "https://x.rossum.app/api/v1", "42"])
-    monkeypatch.setenv("ROSSUM_API_TOKEN", "")
-    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TOKEN")
-    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+    inputs = iter(["ftp://nope", "https://x.rossum.app/api/v1", "", "42"])  # bad url, good url, token-choice, org
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TKN")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
     conn = cli.gather_connection()
     assert conn["domain"] == "https://x.rossum.app/api/v1"
 
@@ -114,7 +151,7 @@ def test_load_users_writes_log_even_when_collect_data_fails(tmp_path, monkeypatc
 
     monkeypatch.setattr(cli.core, "collect_data", boom)
     config = {
-        "token": "t", "domain": "https://x/api/v1",
+        "credentials": None, "domain": "https://x/api/v1",
         "organization": "https://x/api/v1/organizations/1",
         "file_path": str(p), "sheet_name": "",
     }
@@ -144,7 +181,7 @@ def test_load_users_processes_every_row_and_logs_summary(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli.core, "collect_data", collect)
     cfg = {
-        "token": "t", "domain": "https://x/api/v1",
+        "credentials": None, "domain": "https://x/api/v1",
         "organization": "https://x/api/v1/organizations/1",
         "file_path": str(p), "sheet_name": "",
     }
@@ -155,3 +192,66 @@ def test_load_users_processes_every_row_and_logs_summary(tmp_path, monkeypatch):
     log = next(tmp_path.glob("user_load_*.csv")).read_text()
     assert "u1@x.io" in log and "u2@x.io" in log
     assert "Summary -" in log
+
+
+def test_select_arrow_returns_none_when_not_a_tty():
+    # No TTY under pytest → returns None so the caller uses the text fallback.
+    assert cli._select_arrow("pick", [("A", "a"), ("B", "b")]) is None
+
+
+def test_gather_connection_reprompts_on_rejected_token(monkeypatch):
+    # A typed token that Rossum rejects re-prompts until a valid one is entered.
+    from rossum_api.dtos import Token
+    inputs = iter(["https://x.rossum.app/api/v1", "", "42"])  # domain, token-choice, org
+    tokens = iter(["BAD-TOKEN", "GOOD-TOKEN"])
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: next(tokens))
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
+    calls = {"n": 0}
+
+    def verify(domain, token):
+        calls["n"] += 1
+        if token == "BAD-TOKEN":
+            raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(cli.core, "verify_credentials", verify)  # override autouse stub
+    conn = cli.gather_connection()
+    assert isinstance(conn["credentials"], Token)
+    assert conn["credentials"].token == "GOOD-TOKEN"
+    assert calls["n"] == 2  # rejected once, accepted on retry
+
+
+def test_gather_connection_gives_up_after_three_bad_tokens(monkeypatch):
+    inputs = iter(["https://x.rossum.app/api/v1", ""])  # domain, token-choice (org never reached)
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "BAD")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
+    calls = {"n": 0}
+
+    def verify(domain, token):
+        calls["n"] += 1
+        raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(cli.core, "verify_credentials", verify)
+    with pytest.raises(SystemExit) as ei:
+        cli.gather_connection()
+    assert ei.value.code == 1
+    assert calls["n"] == cli.MAX_AUTH_ATTEMPTS  # exactly 3 attempts, then stop
+
+
+def test_gather_connection_gives_up_after_three_failed_logins(monkeypatch):
+    inputs = iter(["https://x.rossum.app/api/v1", "u", "jane@corp.com", "jane@corp.com", "jane@corp.com"])
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "pw")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
+    calls = {"n": 0}
+
+    def gen(domain, username, password):
+        calls["n"] += 1
+        raise RuntimeError("login failed")
+
+    monkeypatch.setattr(cli.core, "generate_token", gen)
+    with pytest.raises(SystemExit) as ei:
+        cli.gather_connection()
+    assert ei.value.code == 1
+    assert calls["n"] == cli.MAX_AUTH_ATTEMPTS

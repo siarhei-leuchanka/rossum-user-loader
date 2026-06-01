@@ -13,7 +13,10 @@ import copy
 import datetime
 from enum import Enum
 
+import httpx
+
 from rossum_api import AsyncRossumAPIClient
+from rossum_api.dtos import Token
 
 # Columns the loader understands in an input row. The values double as the
 # scaffold for the payload built per user.
@@ -308,6 +311,35 @@ def summarize(records: list[dict]) -> dict:
         "skipped": skipped,
         "errors": errors,
     }
+
+
+def generate_token(domain: str, username: str, password: str) -> str:
+    """Exchange username + password for an API token via ``POST {domain}/auth/login``.
+
+    ``domain`` is the base URL ending in ``/v1`` (e.g. https://x.rossum.app/api/v1).
+    Returns the ``key`` from the response; raises on HTTP/connection errors.
+    """
+    response = httpx.post(
+        f"{domain}/auth/login",
+        json={"username": username, "password": password},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return response.json()["key"]
+
+
+def verify_credentials(domain: str, token: str) -> None:
+    """Confirm a token actually authenticates against Rossum by making one real,
+    authenticated request through the SDK — the same client/auth path the load
+    uses. Raises on failure (invalid/expired token, wrong domain, no network).
+    Lists users (which the loader needs anyway) and stops after the first item.
+    """
+    async def _run():
+        client = AsyncRossumAPIClient(base_url=domain, credentials=Token(token=token))
+        async for _user in client.list_users():
+            break
+
+    asyncio.run(_run())
 
 
 def connection_error_message(exc: Exception) -> str:

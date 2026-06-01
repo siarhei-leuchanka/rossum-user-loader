@@ -160,3 +160,45 @@ def test_connection_error_message_is_meaningful():
     assert "Could not connect to Rossum" in msg
     assert "API token" in msg and "domain URL" in msg
     assert "nodename nor servname" in msg  # original detail preserved
+
+
+def test_generate_token_posts_to_auth_login(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"key": "TKN123"}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return _Resp()
+
+    monkeypatch.setattr(core.httpx, "post", fake_post)
+    tok = core.generate_token("https://x.rossum.app/api/v1", "u@x.io", "pw")
+    assert tok == "TKN123"
+    assert captured["url"] == "https://x.rossum.app/api/v1/auth/login"
+    assert captured["json"] == {"username": "u@x.io", "password": "pw"}
+
+
+def test_verify_credentials_makes_authenticated_call(monkeypatch):
+    seen = {}
+
+    class _FakeClient:
+        def __init__(self, base_url=None, credentials=None):
+            seen["base_url"] = base_url
+            seen["credentials"] = credentials
+
+        async def list_users(self):
+            seen["called"] = True
+            return
+            yield  # marks this an async generator (unreachable)
+
+    monkeypatch.setattr(core, "AsyncRossumAPIClient", _FakeClient)
+    core.verify_credentials("https://x.rossum.app/api/v1", "TKN")
+    assert seen["called"] is True
+    assert seen["base_url"] == "https://x.rossum.app/api/v1"
+    assert seen["credentials"].token == "TKN"
