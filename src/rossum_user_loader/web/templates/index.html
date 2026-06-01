@@ -60,6 +60,7 @@
     th, td { border: 1px solid var(--dj-line); padding: 3px 5px; font-size: 13px; vertical-align: top; }
     th { background: #eef3f6; color: #2b4b5a; font-weight: 600; text-align: left; white-space: nowrap; }
     td input, td select, td textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+    input[type="checkbox"] { width: auto; }
 
     .module-foot { padding: .6rem .8rem; }
 
@@ -195,16 +196,19 @@
       <div class="module">
         <h2>Existing users</h2>
         <div class="table-toolbar">
-          <button class="button" onclick="copyAllExisting()">Copy all to load list (as patch)</button>
-          <span class="hint">Copied rows default to the <b>patch</b> action so you can update existing users.</span>
+          <button class="button" onclick="copySelectedExisting()">Copy selected to load list (as patch)</button>
+          <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
+          <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.</span>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
+            <thead><tr>
+              <th><input type="checkbox" onclick="toggleAllExisting(this)" title="Select all"></th>
+              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
             <tbody>
               {% for u in existing %}
               <tr>
-                  <td class="actions-col"><button type="button" class="button secondary" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
+                  <td class="actions-col"><input type="checkbox" class="existing-select" value="{{ loop.index0 }}"></td>
                   <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
                   <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
               {% endfor %}
@@ -411,7 +415,16 @@
       };
     }
 
-    function copyExisting(i) { addRow(existingToRow(EXISTING[i])); refreshDupWarning(); showPane('load'); }
+    function toggleAllExisting(master) {
+      document.querySelectorAll('.existing-select').forEach(cb => { cb.checked = master.checked; });
+    }
+    function copySelectedExisting() {
+      const idx = Array.from(document.querySelectorAll('.existing-select:checked')).map(cb => Number(cb.value));
+      if (!idx.length) { alert('Select at least one existing user (tick the checkboxes).'); return; }
+      idx.forEach(i => addRow(existingToRow(EXISTING[i])));
+      refreshDupWarning();
+      showPane('load');
+    }
     function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
 
     function effUsername(tr) {

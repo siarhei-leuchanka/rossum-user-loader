@@ -130,12 +130,14 @@ def test_existing_tab_shows_roles_and_queues(client):
 
 def test_existing_tab_has_copy_and_action_controls(client):
     html = client.get("/?key=s3cr3t").data
-    assert b"Copy all to load list" in html   # bulk copy
-    assert b"copyExisting(" in html           # per-row copy button
+    assert b"Copy selected to load list" in html   # checkbox-driven bulk copy
+    assert b"copySelectedExisting(" in html
+    assert b"toggleAllExisting(" in html           # select-all checkbox
+    assert b'class="existing-select"' in html      # per-row selection checkbox
     assert b"copyAllExisting(" in html
-    assert b"<th>action</th>" in html         # per-row create/patch column
-    assert b"Set all actions" in html         # master dropdown
-    assert b"const EXISTING =" in html        # full records embedded for copy
+    assert b"<th>action</th>" in html              # per-row create/patch column
+    assert b"Set all actions" in html              # master dropdown
+    assert b"const EXISTING =" in html             # full records embedded for copy
 
 
 def test_load_summary_includes_patched_via_stub(client):
