@@ -5,13 +5,9 @@ A Flask web UI (replacing the spreadsheet) is planned — see `docs/`.
 
 ## Install
 
-Pick one:
+Install with [pipx](https://pipx.pypa.io) (isolated, no manual venv):
 
 ```bash
-# Homebrew (once the tap repo is published)
-brew install siarhei-leuchanka/tap/rossum-user-loader
-
-# or straight from the source repo with pipx (isolated, no manual venv)
 pipx install git+https://github.com/siarhei-leuchanka/rossum-user-loader.git
 ```
 
@@ -45,9 +41,8 @@ src/rossum_user_loader/
   cli.py     # interactive front end + entry point
   core.py    # user-loading logic (no I/O) — reused by the future web UI
   excel.py   # spreadsheet read/write (openpyxl)
-  web/       # placeholder for the planned Flask app
-packaging/homebrew/   # Homebrew formula (lives in the tap repo)
-templates/            # sample upload spreadsheet
+  web/       # Flask web UI (app, launcher, templates)
+templates/   # sample upload spreadsheet
 ```
 
 ## Development
