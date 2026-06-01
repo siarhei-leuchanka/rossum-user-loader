@@ -102,3 +102,29 @@ def test_with_assignments_resolves_urls_to_names():
     assert enriched["role_names"] == ["annotator"]
     # Unresolvable URL falls back to the raw value rather than being dropped.
     assert enriched["queue_names"] == ["Q1", "https://x/queues/999"]
+
+
+def test_launch_exits_cleanly_on_connection_failure(monkeypatch, capsys):
+    # A bad token / domain must produce a clear message + clean exit, not a
+    # raw httpx traceback.
+    monkeypatch.setattr(
+        "rossum_user_loader.cli.gather_connection",
+        lambda: {"token": "t", "domain": "https://bad.example",
+                 "organization": "https://bad.example/organizations/1"},
+    )
+
+    class BadBackend:
+        def __init__(self, conn):
+            pass
+
+        def collect_data(self):
+            raise RuntimeError("[Errno 8] nodename nor servname provided, or not known")
+
+    monkeypatch.setattr(launcher, "Backend", BadBackend)
+
+    import pytest
+    with pytest.raises(SystemExit) as ei:
+        launcher.launch()
+    assert ei.value.code == 1
+    err = capsys.readouterr().err
+    assert "Could not connect to Rossum" in err

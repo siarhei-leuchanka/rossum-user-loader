@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import socket
+import sys
 import threading
 import webbrowser
 
@@ -125,7 +126,13 @@ def launch() -> None:
 
     # The back-end thread owns the client/token and makes every Rossum call.
     backend = Backend(conn)
-    active_users, org_groups, org_queues = backend.collect_data()
+    try:
+        active_users, org_groups, org_queues = backend.collect_data()
+    except Exception as exc:  # noqa: BLE001
+        # Bad token / wrong domain / no network: report clearly and exit instead
+        # of dumping an httpx/SDK traceback.
+        print(f"\nERROR: {core.connection_error_message(exc)}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     state = make_state(
         conn["organization"], backend, active_users, org_groups, org_queues

@@ -105,7 +105,7 @@ async def load_users(config: dict) -> None:
         try:
             active_users, org_groups, org_queues = await core.collect_data(client)
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"Can't get data from Rossum: {exc}") from exc
+            raise RuntimeError(core.connection_error_message(exc)) from exc
 
         logger = await core.run_load(
             client,

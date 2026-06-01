@@ -308,3 +308,16 @@ def summarize(records: list[dict]) -> dict:
         "skipped": skipped,
         "errors": errors,
     }
+
+
+def connection_error_message(exc: Exception) -> str:
+    """A human-readable message for a failure to reach/authenticate with Rossum.
+
+    Covers the common causes (wrong token, wrong/typo'd domain URL, no network)
+    without leaking a raw stack trace; the original error is appended as detail.
+    """
+    return (
+        "Could not connect to Rossum. Please check that your API token is correct, "
+        "the domain URL is valid (e.g. https://<org>.rossum.app/api/v1), and that you "
+        f"have a working network connection.\nDetails: {exc}"
+    )

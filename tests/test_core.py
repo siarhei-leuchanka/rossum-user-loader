@@ -153,3 +153,10 @@ def test_summarize_counts_outcomes():
     assert core.summarize(recs) == {
         "total": 4, "created": 1, "patched": 1, "skipped": 1, "errors": 1
     }
+
+
+def test_connection_error_message_is_meaningful():
+    msg = core.connection_error_message(RuntimeError("[Errno 8] nodename nor servname provided"))
+    assert "Could not connect to Rossum" in msg
+    assert "API token" in msg and "domain URL" in msg
+    assert "nodename nor servname" in msg  # original detail preserved
