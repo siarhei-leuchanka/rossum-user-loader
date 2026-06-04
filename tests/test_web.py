@@ -11,7 +11,7 @@ def make_state(loader=None):
         existing_users=[
             {
                 "username": "u1", "email": "u1@x.io", "first_name": "U", "last_name": "One",
-                "role_names": ["editor"], "queue_names": ["Invoices"],
+                "auth_type": "sso", "role_names": ["editor"], "queue_names": ["Invoices"],
             }
         ],
         loader=loader
@@ -120,12 +120,15 @@ def test_index_includes_dedup_machinery(client):
     assert b"u1" in html  # existing username embedded for the client-side check
 
 
-def test_existing_tab_shows_roles_and_queues(client):
+def test_existing_tab_shows_roles_queues_and_auth_type(client):
     html = client.get("/?key=s3cr3t").data
     # Distinctive values only present on the existing user (not in ROLES/QUEUES).
     assert b"editor" in html
     assert b"Invoices" in html
     assert b"roles" in html and b"queues" in html  # column headers
+    # auth_type rendered as a cell (the JS option list has 'sso' only inside
+    # <script>, so a literal <td>sso</td> can only come from the existing table).
+    assert b"<td>sso</td>" in html
 
 
 def test_existing_tab_has_copy_and_action_controls(client):

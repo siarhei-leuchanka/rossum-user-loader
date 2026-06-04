@@ -204,12 +204,13 @@
           <table>
             <thead><tr>
               <th><input type="checkbox" onclick="toggleAllExisting(this)" title="Select all"></th>
-              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
+              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>auth_type</th><th>roles</th><th>queues</th></tr></thead>
             <tbody>
               {% for u in existing %}
               <tr>
                   <td class="actions-col"><input type="checkbox" class="existing-select" value="{{ loop.index0 }}"></td>
                   <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+                  <td>{{ u.auth_type }}</td>
                   <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
               {% endfor %}
             </tbody>
@@ -409,7 +410,7 @@
         .map(n => { const q = QUEUES.find(x => x.name === n); return q ? String(q.id) : null; })
         .filter(Boolean);
       return {
-        auth_type: 'password', email: u.email || '', first_name: u.first_name || '',
+        auth_type: u.auth_type || 'password', email: u.email || '', first_name: u.first_name || '',
         last_name: u.last_name || '', username: u.username || '', oidc_id: '',
         role: role, queue_ids: qIds.join('\n'), can_approve: canApprove, action: 'patch',
       };

@@ -35,12 +35,13 @@ def test_required_columns_excludes_username():
 
 
 class _FakeUser:
-    def __init__(self, username, email):
+    def __init__(self, username, email, auth_type="password"):
         self.id = 1
         self.username = username
         self.email = email
         self.first_name = "F"
         self.last_name = "L"
+        self.auth_type = auth_type
         self.groups = []
         self.queues = []
         self.deleted = False
@@ -55,11 +56,12 @@ class _UserClient:
             yield u
 
 
-async def test_list_active_users_has_username_and_email():
-    client = _UserClient([_FakeUser("jdoe", "j@x.io")])
+async def test_list_active_users_has_username_email_and_auth_type():
+    client = _UserClient([_FakeUser("jdoe", "j@x.io", auth_type="sso")])
     users = await core.list_active_users(client)
     assert users[0]["username"] == "jdoe"
     assert users[0]["email"] == "j@x.io"
+    assert users[0]["auth_type"] == "sso"
 
 
 from tests.conftest import FakeClient
