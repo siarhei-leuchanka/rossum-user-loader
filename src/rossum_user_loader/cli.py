@@ -12,6 +12,7 @@ import asyncio
 import datetime
 import getpass
 import os
+from typing import NoReturn
 
 from rossum_api import AsyncRossumAPIClient
 from rossum_api.dtos import Token
@@ -24,6 +25,14 @@ GREEN = "\033[92m"
 BLUE = "\033[94m"
 MAGENTA = "\033[35m"
 RESET = "\033[0m"
+
+# How many times the user may retry bad credentials/token before we give up.
+MAX_AUTH_ATTEMPTS = 3
+
+
+def _give_up() -> NoReturn:
+    print(f"{RED}Giving up after {MAX_AUTH_ATTEMPTS} failed attempts.{RESET}")
+    raise SystemExit(1)
 
 
 def _prompt_valid(label: str, validator, env_value=None, secret=False):
@@ -40,24 +49,139 @@ def _prompt_valid(label: str, validator, env_value=None, secret=False):
             print(f"{RED}{exc}{RESET}")
 
 
+def _select_arrow(title: str, options, default_index: int = 0):
+    """Arrow-key menu on an interactive POSIX terminal. ``options`` is a list of
+    (label, value); returns the chosen value. Returns None when a real TUI isn't
+    possible (not a TTY, no termios, Windows) so the caller can fall back to text.
+    """
+    import sys
+
+    stdin, stdout = sys.stdin, sys.stdout
+    if not (stdin.isatty() and stdout.isatty()):
+        return None
+    try:
+        import termios
+        import tty
+    except Exception:  # noqa: BLE001 - not POSIX / no terminal
+        return None
+
+    idx = default_index
+    n = len(options)
+    stdout.write(f"{title}\n  (↑/↓ to move, Enter to select)\n")
+
+    def render():
+        for i, (label, _value) in enumerate(options):
+            if i == idx:
+                stdout.write(f"\r\033[7m› {label}\033[0m\033[K\n")
+            else:
+                stdout.write(f"\r  {label}\033[K\n")
+        stdout.flush()
+
+    render()
+    fd = stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while True:
+            ch = stdin.read(1)
+            if ch in ("\r", "\n"):
+                break
+            if ch == "\x03":  # Ctrl-C
+                raise KeyboardInterrupt
+            if ch == "\x1b":  # escape sequence — arrow keys
+                seq = stdin.read(2)
+                if seq.endswith("A"):
+                    idx = (idx - 1) % n
+                elif seq.endswith("B"):
+                    idx = (idx + 1) % n
+            elif ch == "k":
+                idx = (idx - 1) % n
+            elif ch == "j":
+                idx = (idx + 1) % n
+            stdout.write(f"\033[{n}A")  # move back up over the option lines
+            render()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return options[idx][1]
+
+
+def _select_auth_method() -> str:
+    """Ask whether to authenticate with a token or username+password (token is
+    the default). Uses an arrow-key menu when possible, else a typed T/U prompt."""
+    options = [("API token", "token"), ("Username + password", "userpass")]
+    chosen = _select_arrow("How do you want to authenticate?", options, default_index=0)
+    if chosen is not None:
+        return chosen
+    # Fallback for non-interactive / unsupported terminals.
+    while True:
+        choice = input("Authenticate with [T]oken or [U]sername+password? [T]: ").strip().lower()
+        if choice in ("", "t", "token"):
+            return "token"
+        if choice in ("u", "user", "username", "userpass", "p", "password"):
+            return "userpass"
+        print(f"{RED}Please enter 'T' for token or 'U' for username+password.{RESET}")
+
+
+def _resolve_token(domain: str) -> str:
+    """Obtain an API token: from ROSSUM_API_TOKEN, entered directly, or generated
+    from username+password via the Rossum /auth/login endpoint. Every API call
+    then uses this token — the credentials are only ever exchanged for one."""
+    env_token = os.environ.get("ROSSUM_API_TOKEN")
+    if env_token:
+        token = validation.validate_token(env_token)
+        try:
+            core.verify_credentials(domain, token)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{RED}ROSSUM_API_TOKEN was rejected by Rossum.\n"
+                  f"Details: {exc}{RESET}")
+            raise SystemExit(1) from None
+        return token
+
+    if _select_auth_method() == "token":
+        # Verify the token is real (one authenticated call); re-prompt if rejected,
+        # up to MAX_AUTH_ATTEMPTS times, then give up.
+        for attempt in range(1, MAX_AUTH_ATTEMPTS + 1):
+            token = _prompt_valid(
+                "Rossum API token (input hidden): ", validation.validate_token, secret=True
+            )
+            try:
+                core.verify_credentials(domain, token)
+                return token
+            except Exception as exc:  # noqa: BLE001
+                print(f"{RED}That token was rejected by Rossum — check the token "
+                      f"(and the domain URL). [attempt {attempt}/{MAX_AUTH_ATTEMPTS}]"
+                      f"\nDetails: {exc}{RESET}")
+        _give_up()
+
+    # Username + password → exchange for a token via /auth/login (retry, capped).
+    for attempt in range(1, MAX_AUTH_ATTEMPTS + 1):
+        username = _prompt_valid("Rossum username (email): ", validation.validate_username)
+        password = _prompt_valid(
+            "Rossum password (input hidden): ", validation.validate_password, secret=True
+        )
+        try:
+            return core.generate_token(domain, username, password)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"{RED}Login failed — check your username, password, and the domain "
+                f"URL. [attempt {attempt}/{MAX_AUTH_ATTEMPTS}]\nDetails: {exc}{RESET}"
+            )
+    _give_up()
+
+
 def gather_connection() -> dict:
-    """Collect and validate Rossum connection details (token may come from env)."""
-    token = _prompt_valid(
-        "Please enter your Rossum API token (input hidden): ",
-        validation.validate_token,
-        env_value=os.environ.get("ROSSUM_API_TOKEN"),
-        secret=True,
-    )
+    """Collect and validate the domain, credentials (token), and organization."""
     domain = _prompt_valid(
         "Please enter Rossum domain url with /v1 in the end "
         "e.g. https://custom-domain.rossum.app/api/v1: ",
         validation.validate_domain,
     )
+    token = _resolve_token(domain)
     organization_id = _prompt_valid(
         "What is the target Organization ID: ", validation.validate_org_id
     )
     return {
-        "token": token,
+        "credentials": Token(token=token),
         "domain": domain,
         "organization": f"{domain}/organizations/{organization_id}",
     }
@@ -87,7 +211,7 @@ def _read_input_rows(config: dict) -> list[dict]:
 
 async def load_users(config: dict) -> None:
     client = AsyncRossumAPIClient(
-        base_url=config["domain"], credentials=Token(token=config["token"])
+        base_url=config["domain"], credentials=config["credentials"]
     )
 
     # A log is ALWAYS written — even if reading the file or reaching Rossum

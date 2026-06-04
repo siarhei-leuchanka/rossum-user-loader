@@ -17,9 +17,13 @@ pipx install git+https://github.com/siarhei-leuchanka/rossum-user-loader.git
 rossum-user-loader
 ```
 
-You'll be prompted for your API token (or set `ROSSUM_API_TOKEN`), the domain
-URL, the target organization ID, the path to an `.xlsx` file, and the sheet
-name. A timestamped log is written next to your input file.
+After the domain URL, you choose how to authenticate — **token** (the default)
+or **username + password**. With username/password the tool calls Rossum's
+`/auth/login` to obtain a token; either way every API call uses a token. The
+password (and a typed token) are entered hidden. Setting `ROSSUM_API_TOKEN`
+skips the prompt entirely (handy for automation). Then you provide the target
+organization ID and the path to a `.csv` or `.xlsx` file (sheet name is asked
+only for `.xlsx`). A timestamped log is written next to your input file.
 
 Start from `templates/user_load_template.xlsx`. The first data row is treated
 as an example and skipped; add real users beneath it. Columns:

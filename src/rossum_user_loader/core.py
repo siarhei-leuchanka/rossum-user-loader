@@ -13,7 +13,10 @@ import copy
 import datetime
 from enum import Enum
 
+import httpx
+
 from rossum_api import AsyncRossumAPIClient
+from rossum_api.dtos import Token
 
 # Columns the loader understands in an input row. The values double as the
 # scaffold for the payload built per user.
@@ -119,6 +122,8 @@ async def list_active_users(client: AsyncRossumAPIClient) -> list[dict]:
                     "email": user.email,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
+                    "auth_type": user.auth_type,
+                    "oidc_id": user.oidc_id,
                     "groups": user.groups,
                     "queues": user.queues,
                 }
@@ -172,7 +177,11 @@ def _emit(on_result, level: str, message: str) -> None:
 
 
 async def _patch_one(client, user_data, existing_by_username, logger, on_result) -> None:
-    """Patch an existing user matched by username (roles, queues, names)."""
+    """Patch an existing user matched by username.
+
+    Updated fields: first_name, last_name, oidc_id, auth_type, groups, queues.
+    Identity fields (username, email, organization) are never patched.
+    """
     key = user_data["username"].lower().strip()
     existing = existing_by_username.get(key)
     if not existing or not existing.get("id"):
@@ -180,9 +189,19 @@ async def _patch_one(client, user_data, existing_by_username, logger, on_result)
         logger.add("Error - patch failed - no existing user", **user_data)
         return
 
+    if user_data["auth_type"] not in ("sso", "password"):
+        _emit(
+            on_result, "skip",
+            f"Check user data entry - {user_data['username']} (invalid auth_type for patch)",
+        )
+        logger.add("Error-check user data entry. Invalid auth_type for patch.", **user_data)
+        return
+
     patch_payload = {
         "first_name": user_data["first_name"],
         "last_name": user_data["last_name"],
+        "oidc_id": user_data["oidc_id"],
+        "auth_type": user_data["auth_type"],
         "groups": user_data["groups"],
         "queues": user_data["queues"],
     }
@@ -308,6 +327,35 @@ def summarize(records: list[dict]) -> dict:
         "skipped": skipped,
         "errors": errors,
     }
+
+
+def generate_token(domain: str, username: str, password: str) -> str:
+    """Exchange username + password for an API token via ``POST {domain}/auth/login``.
+
+    ``domain`` is the base URL ending in ``/v1`` (e.g. https://x.rossum.app/api/v1).
+    Returns the ``key`` from the response; raises on HTTP/connection errors.
+    """
+    response = httpx.post(
+        f"{domain}/auth/login",
+        json={"username": username, "password": password},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return response.json()["key"]
+
+
+def verify_credentials(domain: str, token: str) -> None:
+    """Confirm a token actually authenticates against Rossum by making one real,
+    authenticated request through the SDK — the same client/auth path the load
+    uses. Raises on failure (invalid/expired token, wrong domain, no network).
+    Lists users (which the loader needs anyway) and stops after the first item.
+    """
+    async def _run():
+        client = AsyncRossumAPIClient(base_url=domain, credentials=Token(token=token))
+        async for _user in client.list_users():
+            break
+
+    asyncio.run(_run())
 
 
 def connection_error_message(exc: Exception) -> str:

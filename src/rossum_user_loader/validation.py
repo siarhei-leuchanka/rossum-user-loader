@@ -17,6 +17,8 @@ MAX_MANUAL_ADD_ROWS = 100         # rows the grid adds in one "Add" action
 MAX_ROWS = 1000                   # rows accepted per load (fan-out / memory guard)
 MAX_FIELD_LEN = 1000              # per-field character cap
 MAX_TOKEN_LEN = 1024
+MAX_USERNAME_LEN = 256
+MAX_PASSWORD_LEN = 256
 MAX_URL_LEN = 2048
 MAX_ORG_ID = 100_000_000_000      # 1e11
 MAX_REQUEST_BYTES = 5 * 1024 * 1024  # cap on the /load request body (DoS guard)
@@ -48,6 +50,29 @@ def validate_token(token: str) -> str:
     if _ANY_CTRL.search(token) or any(c.isspace() for c in token):
         raise ValidationError("API token contains whitespace or control characters.")
     return token
+
+
+def validate_username(username: str) -> str:
+    username = (username or "").strip()
+    if not username:
+        raise ValidationError("Username is required.")
+    if len(username) > MAX_USERNAME_LEN:
+        raise ValidationError(f"Username is too long (max {MAX_USERNAME_LEN} characters).")
+    if _ANY_CTRL.search(username) or any(c.isspace() for c in username):
+        raise ValidationError("Username contains whitespace or control characters.")
+    return username
+
+
+def validate_password(password: str) -> str:
+    # Not stripped: a password may legitimately contain spaces. Reject only empty,
+    # over-long, or control characters (e.g. a stray newline from a paste).
+    if not password:
+        raise ValidationError("Password is required.")
+    if len(password) > MAX_PASSWORD_LEN:
+        raise ValidationError(f"Password is too long (max {MAX_PASSWORD_LEN} characters).")
+    if _ANY_CTRL.search(password):
+        raise ValidationError("Password contains control characters.")
+    return password
 
 
 def validate_domain(url: str) -> str:

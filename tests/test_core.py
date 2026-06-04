@@ -35,12 +35,14 @@ def test_required_columns_excludes_username():
 
 
 class _FakeUser:
-    def __init__(self, username, email):
+    def __init__(self, username, email, auth_type="password", oidc_id="oid-1"):
         self.id = 1
         self.username = username
         self.email = email
         self.first_name = "F"
         self.last_name = "L"
+        self.auth_type = auth_type
+        self.oidc_id = oidc_id
         self.groups = []
         self.queues = []
         self.deleted = False
@@ -55,11 +57,13 @@ class _UserClient:
             yield u
 
 
-async def test_list_active_users_has_username_and_email():
-    client = _UserClient([_FakeUser("jdoe", "j@x.io")])
+async def test_list_active_users_has_username_email_auth_type_and_oidc_id():
+    client = _UserClient([_FakeUser("jdoe", "j@x.io", auth_type="sso", oidc_id="oid-7")])
     users = await core.list_active_users(client)
     assert users[0]["username"] == "jdoe"
     assert users[0]["email"] == "j@x.io"
+    assert users[0]["auth_type"] == "sso"
+    assert users[0]["oidc_id"] == "oid-7"
 
 
 from tests.conftest import FakeClient
@@ -127,7 +131,10 @@ async def test_run_load_patches_existing_user_when_action_patch():
     assert client._http_client.update_calls
     _resource, user_id, payload = client._http_client.update_calls[0]
     assert user_id == 42
-    assert set(payload.keys()) == {"first_name", "last_name", "groups", "queues"}
+    assert set(payload.keys()) == {
+        "first_name", "last_name", "oidc_id", "auth_type", "groups", "queues"
+    }
+    assert payload["auth_type"] == "password"
     assert any("User patched" in m["Messages"] for m in logger.get())
 
 
@@ -160,3 +167,56 @@ def test_connection_error_message_is_meaningful():
     assert "Could not connect to Rossum" in msg
     assert "API token" in msg and "domain URL" in msg
     assert "nodename nor servname" in msg  # original detail preserved
+
+
+def test_generate_token_posts_to_auth_login(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"key": "TKN123"}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return _Resp()
+
+    monkeypatch.setattr(core.httpx, "post", fake_post)
+    tok = core.generate_token("https://x.rossum.app/api/v1", "u@x.io", "pw")
+    assert tok == "TKN123"
+    assert captured["url"] == "https://x.rossum.app/api/v1/auth/login"
+    assert captured["json"] == {"username": "u@x.io", "password": "pw"}
+
+
+def test_verify_credentials_makes_authenticated_call(monkeypatch):
+    seen = {}
+
+    class _FakeClient:
+        def __init__(self, base_url=None, credentials=None):
+            seen["base_url"] = base_url
+            seen["credentials"] = credentials
+
+        async def list_users(self):
+            seen["called"] = True
+            return
+            yield  # marks this an async generator (unreachable)
+
+    monkeypatch.setattr(core, "AsyncRossumAPIClient", _FakeClient)
+    core.verify_credentials("https://x.rossum.app/api/v1", "TKN")
+    assert seen["called"] is True
+    assert seen["base_url"] == "https://x.rossum.app/api/v1"
+    assert seen["credentials"].token == "TKN"
+
+
+async def test_run_load_patch_rejects_invalid_auth_type():
+    rows = [_row(email="dup@x.io", username="dupuser", auth_type="bogus", action="patch")]
+    existing = [{"username": "dupuser", "email": "dup@x.io", "id": 42}]
+    client = FakeClient()
+
+    logger = await core.run_load(client, rows, "https://x/org/1", GROUPS, QUEUES, existing)
+
+    assert client._http_client.update_calls == []  # nothing sent
+    assert any("Invalid auth_type for patch" in m["Messages"] for m in logger.get())

@@ -60,6 +60,7 @@
     th, td { border: 1px solid var(--dj-line); padding: 3px 5px; font-size: 13px; vertical-align: top; }
     th { background: #eef3f6; color: #2b4b5a; font-weight: 600; text-align: left; white-space: nowrap; }
     td input, td select, td textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+    input[type="checkbox"] { width: auto; }
 
     .module-foot { padding: .6rem .8rem; }
 
@@ -84,6 +85,9 @@
     tr.patch td { background: #e7f3ff; }
     tr.dupinlist td { background: #ffe0b2; }
     tr.dupinlist input[data-col="username"], tr.dupinlist input[data-col="email"] { border: 1px solid #e65100; }
+    /* Cells whose value WILL be written to the existing user when action=patch.
+       Placed after the tr.* row rules so the per-cell highlight wins. */
+    td.will-patch { background: #dbeafe; box-shadow: inset 0 0 0 2px #93c5fd; }
     #dupwarn { margin: .2rem 0; color: #b00020; font-weight: 600; }
     #dupwarn div { margin: .15rem 0; }
     .actions-col { white-space: nowrap; }
@@ -195,17 +199,23 @@
       <div class="module">
         <h2>Existing users</h2>
         <div class="table-toolbar">
-          <button class="button" onclick="copyAllExisting()">Copy all to load list (as patch)</button>
-          <span class="hint">Copied rows default to the <b>patch</b> action so you can update existing users.</span>
+          <button class="button" onclick="copySelectedExisting()">Copy selected to load list (as patch)</button>
+          <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
+          <button class="button secondary" onclick="refreshExisting()">⟳ Refresh</button>
+          <span id="refresh-status"></span>
+          <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.</span>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th></th><th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>roles</th><th>queues</th></tr></thead>
-            <tbody>
+            <thead><tr>
+              <th><input type="checkbox" onclick="toggleAllExisting(this)" title="Select all"></th>
+              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>auth_type</th><th>roles</th><th>queues</th></tr></thead>
+            <tbody id="existing-body">
               {% for u in existing %}
               <tr>
-                  <td class="actions-col"><button type="button" class="button secondary" onclick="copyExisting({{ loop.index0 }})">Copy →</button></td>
+                  <td class="actions-col"><input type="checkbox" class="existing-select" value="{{ loop.index0 }}"></td>
                   <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
+                  <td>{{ u.auth_type }}</td>
                   <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
               {% endfor %}
             </tbody>
@@ -218,8 +228,8 @@
   <script>
     const ROLES = {{ roles | tojson }};
     const QUEUES = {{ queues | tojson }};
-    const EXISTING = {{ existing | tojson }};
-    const EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
+    let EXISTING = {{ existing | tojson }};
+    let EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
     const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
     // Client-side limits (mirror server-side validation.py; server is authoritative).
     const MAX_ADD_ROWS = 100;
@@ -405,14 +415,69 @@
         .map(n => { const q = QUEUES.find(x => x.name === n); return q ? String(q.id) : null; })
         .filter(Boolean);
       return {
-        auth_type: 'password', email: u.email || '', first_name: u.first_name || '',
-        last_name: u.last_name || '', username: u.username || '', oidc_id: '',
+        auth_type: u.auth_type || 'password', email: u.email || '', first_name: u.first_name || '',
+        last_name: u.last_name || '', username: u.username || '', oidc_id: u.oidc_id || '',
         role: role, queue_ids: qIds.join('\n'), can_approve: canApprove, action: 'patch',
       };
     }
 
-    function copyExisting(i) { addRow(existingToRow(EXISTING[i])); refreshDupWarning(); showPane('load'); }
+    function toggleAllExisting(master) {
+      document.querySelectorAll('.existing-select').forEach(cb => { cb.checked = master.checked; });
+    }
+    function copySelectedExisting() {
+      const idx = Array.from(document.querySelectorAll('.existing-select:checked')).map(cb => Number(cb.value));
+      if (!idx.length) { alert('Select at least one existing user (tick the checkboxes).'); return; }
+      idx.forEach(i => addRow(existingToRow(EXISTING[i])));
+      refreshDupWarning();
+      showPane('load');
+    }
     function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
+
+    // Rebuild the Existing Users table from EXISTING (mirrors the server-side
+    // Jinja render used for the initial page load). DOM/textContent only — the
+    // user records are never injected as HTML.
+    function renderExisting() {
+      const body = document.getElementById('existing-body');
+      body.innerHTML = '';
+      EXISTING.forEach((u, i) => {
+        const tr = document.createElement('tr');
+        const sel = document.createElement('input');
+        sel.type = 'checkbox'; sel.className = 'existing-select'; sel.value = String(i);
+        const selTd = td(sel); selTd.className = 'actions-col';
+        tr.appendChild(selTd);
+        [u.username, u.email, u.first_name, u.last_name, u.auth_type,
+         (u.role_names || []).join(', '), (u.queue_names || []).join(', ')].forEach(v => {
+          const c = document.createElement('td');
+          c.textContent = v == null ? '' : String(v);
+          tr.appendChild(c);
+        });
+        body.appendChild(tr);
+      });
+    }
+
+    async function refreshExisting() {
+      const status = document.getElementById('refresh-status');
+      status.className = ''; status.textContent = 'refreshing…';
+      try {
+        const resp = await fetch('/existing-users/refresh', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          // Keep the current list; just surface the error.
+          status.className = 'err';
+          status.textContent = 'Refresh failed: ' + (data.error || resp.status);
+          return;
+        }
+        EXISTING = data.existing;
+        EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
+        renderExisting();
+        refreshDupWarning();  // dup/skip highlighting depends on EXISTING_USERNAMES
+        status.className = 'ok';
+        status.textContent = 'Updated — ' + EXISTING.length + ' user(s).';
+      } catch (e) {
+        status.className = 'err';
+        status.textContent = 'Refresh failed: ' + e;
+      }
+    }
 
     function effUsername(tr) {
       const get = (col) => {
@@ -426,6 +491,25 @@
     function rowAction(tr) {
       const sel = tr.querySelector('[data-col="action"]');
       return sel ? sel.value : 'create';
+    }
+
+    // Fields sent to Rossum when a row is PATCHED (mirrors core._patch_one):
+    // role + can_approve become `groups`, queue_ids becomes `queues`.
+    // username/email are only used to MATCH the existing user, never written.
+    const PATCHED_COLS = ['auth_type', 'first_name', 'last_name', 'oidc_id',
+                          'role', 'queue_ids', 'can_approve'];
+
+    function highlightPatchFields(tr, isPatch) {
+      tr.querySelectorAll('[data-col]').forEach(el => {
+        if (PATCHED_COLS.indexOf(el.dataset.col) < 0) return;
+        const cell = el.closest('td');
+        if (cell) cell.classList.toggle('will-patch', isPatch);
+        if (isPatch) {
+          el.title = 'Will be written to the existing user (patch).';
+        } else {
+          el.removeAttribute('title');
+        }
+      });
     }
 
     function refreshDupWarning() {
@@ -448,6 +532,7 @@
         tr.classList.toggle('patch', willPatch && !dupInList);
         tr.classList.toggle('warn', patchNoTarget && !dupInList);
         tr.classList.toggle('dupinlist', dupInList);
+        highlightPatchFields(tr, action === 'patch');
 
         const titles = [];
         if (dupInList) {
@@ -462,7 +547,8 @@
           badPatch++;
           titles.push('No existing user with this username — a "patch" row will fail (nothing to update).');
         } else if (willPatch) {
-          titles.push('This will UPDATE (patch) the existing user.');
+          titles.push('This will UPDATE (patch) the existing user — the highlighted '
+            + 'fields will be written; username/email only identify the user.');
         }
         const title = titles.join(' ');
         ['username', 'email'].forEach(col => {
@@ -616,6 +702,10 @@
           ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
         renderResults(data.records);
         document.getElementById('loglink').style.display = 'inline-block';
+        // The load just created/patched users — refetch the Existing Users tab
+        // so it (and the dup-checks) reflect the new state. A refresh failure
+        // only marks the refresh status; the load results above stay intact.
+        refreshExisting();
       } catch (e) {
         status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
       }

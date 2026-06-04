@@ -45,11 +45,10 @@ class Backend:
     async def _client_on_loop(self):
         if self._client is None:
             from rossum_api import AsyncRossumAPIClient
-            from rossum_api.dtos import Token
 
             self._client = AsyncRossumAPIClient(
                 base_url=self._conn["domain"],
-                credentials=Token(token=self._conn["token"]),
+                credentials=self._conn["credentials"],
             )
         return self._client
 
@@ -102,12 +101,26 @@ def make_state(organization, backend, active_users, org_groups, org_queues) -> A
 
     group_name_by_url = {g.url: g.name for g in org_groups}
     queue_name_by_url = {q.url: q.name for q in org_queues}
-    existing = [
-        _with_assignments(u, group_name_by_url, queue_name_by_url) for u in active_users
-    ]
+
+    def enrich(users: list[dict]) -> list[dict]:
+        return [_with_assignments(u, group_name_by_url, queue_name_by_url) for u in users]
+
+    existing = enrich(active_users)
 
     def loader(rows: list[dict]) -> list[dict]:
         return backend.run_load(rows, organization, org_groups, org_queues, active_users)
+
+    def refresh_users() -> list[dict]:
+        # Re-fetch from Rossum and rebind the closure variables so the LOADER's
+        # duplicate/patch matching also uses the fresh data, not the launch-time
+        # snapshot. (The roles/queues dropdown lists in the page itself are only
+        # rebuilt on a browser reload.)
+        nonlocal active_users, org_groups, org_queues
+        nonlocal group_name_by_url, queue_name_by_url
+        active_users, org_groups, org_queues = backend.collect_data()
+        group_name_by_url = {g.url: g.name for g in org_groups}
+        queue_name_by_url = {q.url: q.name for q in org_queues}
+        return enrich(active_users)
 
     return AppState(
         secret=secrets.token_urlsafe(32),
@@ -115,6 +128,7 @@ def make_state(organization, backend, active_users, org_groups, org_queues) -> A
         queues=queues,
         existing_users=existing,
         loader=loader,
+        refresh_users=refresh_users,
     )
 
 

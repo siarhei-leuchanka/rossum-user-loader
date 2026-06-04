@@ -19,9 +19,11 @@ class FakeBackend:
     """Stand-in for the real Backend: runs core.run_load with a FakeClient,
     no thread/loop/network. Lets us test the make_state handoff in isolation."""
 
-    def __init__(self):
+    def __init__(self, collect_result=None):
         self.client = FakeClient()
         self.calls = 0
+        self.collect_calls = 0
+        self.collect_result = collect_result
 
     def run_load(self, rows, organization, org_groups, org_queues, existing_users):
         self.calls += 1
@@ -29,6 +31,10 @@ class FakeBackend:
             core.run_load(self.client, rows, organization, org_groups, org_queues, existing_users)
         )
         return logger.get()
+
+    def collect_data(self):
+        self.collect_calls += 1
+        return self.collect_result
 
 
 def test_free_port_returns_int():
@@ -86,6 +92,32 @@ def test_backend_reuses_single_client_across_loads(monkeypatch):
     assert any("User created" in m["Messages"] for m in r1)
     assert any("User created" in m["Messages"] for m in r2)
     assert [u["username"] for u in fake.created] == ["u1", "u2"]
+
+
+def test_refresh_users_refetches_enriches_and_loader_sees_fresh_data():
+    groups = [FakeGroup("annotator", "https://x/groups/1")]
+    queues = [FakeQueue(123, "https://x/queues/123", "Q1")]
+    fresh_user = {
+        "username": "newuser", "email": "n@x.io", "first_name": "N", "last_name": "X",
+        "groups": ["https://x/groups/1"], "queues": ["https://x/queues/123"],
+    }
+    backend = FakeBackend(collect_result=([fresh_user], groups, queues))
+
+    # Launch with NO existing users — "newuser" appears only after the refetch.
+    state = launcher.make_state("https://x/org/1", backend, [], groups, queues)
+
+    refreshed = state.refresh_users()
+    assert backend.collect_calls == 1
+    # Returned records are enriched like the initial list (names, not URLs).
+    assert refreshed[0]["username"] == "newuser"
+    assert refreshed[0]["role_names"] == ["annotator"]
+    assert refreshed[0]["queue_names"] == ["Q1"]
+
+    # The loader's duplicate matching now uses the FRESH user list: a "create"
+    # for newuser is skipped instead of creating a duplicate.
+    records = state.loader([_sample_row()])
+    assert any("Skipped" in m["Messages"] for m in records)
+    assert not backend.client.created
 
 
 def test_with_assignments_resolves_urls_to_names():
