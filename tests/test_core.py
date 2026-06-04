@@ -35,13 +35,14 @@ def test_required_columns_excludes_username():
 
 
 class _FakeUser:
-    def __init__(self, username, email, auth_type="password"):
+    def __init__(self, username, email, auth_type="password", oidc_id="oid-1"):
         self.id = 1
         self.username = username
         self.email = email
         self.first_name = "F"
         self.last_name = "L"
         self.auth_type = auth_type
+        self.oidc_id = oidc_id
         self.groups = []
         self.queues = []
         self.deleted = False
@@ -56,12 +57,13 @@ class _UserClient:
             yield u
 
 
-async def test_list_active_users_has_username_email_and_auth_type():
-    client = _UserClient([_FakeUser("jdoe", "j@x.io", auth_type="sso")])
+async def test_list_active_users_has_username_email_auth_type_and_oidc_id():
+    client = _UserClient([_FakeUser("jdoe", "j@x.io", auth_type="sso", oidc_id="oid-7")])
     users = await core.list_active_users(client)
     assert users[0]["username"] == "jdoe"
     assert users[0]["email"] == "j@x.io"
     assert users[0]["auth_type"] == "sso"
+    assert users[0]["oidc_id"] == "oid-7"
 
 
 from tests.conftest import FakeClient
@@ -129,7 +131,10 @@ async def test_run_load_patches_existing_user_when_action_patch():
     assert client._http_client.update_calls
     _resource, user_id, payload = client._http_client.update_calls[0]
     assert user_id == 42
-    assert set(payload.keys()) == {"first_name", "last_name", "groups", "queues"}
+    assert set(payload.keys()) == {
+        "first_name", "last_name", "oidc_id", "auth_type", "groups", "queues"
+    }
+    assert payload["auth_type"] == "password"
     assert any("User patched" in m["Messages"] for m in logger.get())
 
 
@@ -204,3 +209,14 @@ def test_verify_credentials_makes_authenticated_call(monkeypatch):
     assert seen["called"] is True
     assert seen["base_url"] == "https://x.rossum.app/api/v1"
     assert seen["credentials"].token == "TKN"
+
+
+async def test_run_load_patch_rejects_invalid_auth_type():
+    rows = [_row(email="dup@x.io", username="dupuser", auth_type="bogus", action="patch")]
+    existing = [{"username": "dupuser", "email": "dup@x.io", "id": 42}]
+    client = FakeClient()
+
+    logger = await core.run_load(client, rows, "https://x/org/1", GROUPS, QUEUES, existing)
+
+    assert client._http_client.update_calls == []  # nothing sent
+    assert any("Invalid auth_type for patch" in m["Messages"] for m in logger.get())

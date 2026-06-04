@@ -245,3 +245,11 @@ def test_bulk_set_all_queues_controls_present(client):
     assert b"Apply queues to all rows" in html
     assert b"applyQueuesToAll(" in html
     assert b"buildBulkQueues(" in html
+
+
+def test_patch_field_highlighting_machinery_present(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"PATCHED_COLS" in html          # list of fields a patch writes
+    assert b"highlightPatchFields(" in html
+    assert b"will-patch" in html            # cell highlight class + CSS
+    assert b"Will be written to the existing user" in html

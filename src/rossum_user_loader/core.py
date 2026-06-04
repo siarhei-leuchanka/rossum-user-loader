@@ -123,6 +123,7 @@ async def list_active_users(client: AsyncRossumAPIClient) -> list[dict]:
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "auth_type": user.auth_type,
+                    "oidc_id": user.oidc_id,
                     "groups": user.groups,
                     "queues": user.queues,
                 }
@@ -176,7 +177,11 @@ def _emit(on_result, level: str, message: str) -> None:
 
 
 async def _patch_one(client, user_data, existing_by_username, logger, on_result) -> None:
-    """Patch an existing user matched by username (roles, queues, names)."""
+    """Patch an existing user matched by username.
+
+    Updated fields: first_name, last_name, oidc_id, auth_type, groups, queues.
+    Identity fields (username, email, organization) are never patched.
+    """
     key = user_data["username"].lower().strip()
     existing = existing_by_username.get(key)
     if not existing or not existing.get("id"):
@@ -184,9 +189,19 @@ async def _patch_one(client, user_data, existing_by_username, logger, on_result)
         logger.add("Error - patch failed - no existing user", **user_data)
         return
 
+    if user_data["auth_type"] not in ("sso", "password"):
+        _emit(
+            on_result, "skip",
+            f"Check user data entry - {user_data['username']} (invalid auth_type for patch)",
+        )
+        logger.add("Error-check user data entry. Invalid auth_type for patch.", **user_data)
+        return
+
     patch_payload = {
         "first_name": user_data["first_name"],
         "last_name": user_data["last_name"],
+        "oidc_id": user_data["oidc_id"],
+        "auth_type": user_data["auth_type"],
         "groups": user_data["groups"],
         "queues": user_data["queues"],
     }
