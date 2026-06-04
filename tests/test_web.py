@@ -3,7 +3,7 @@ import pytest
 from rossum_user_loader.web.app import AppState, create_app
 
 
-def make_state(loader=None):
+def make_state(loader=None, refresher=None):
     return AppState(
         secret="s3cr3t",
         roles=[{"name": "annotator", "url": "https://x/groups/1"}],
@@ -18,6 +18,7 @@ def make_state(loader=None):
         or (lambda rows: [
             {"Messages": "User created", "username": r.get("username", "")} for r in rows
         ]),
+        refresh_users=refresher,
     )
 
 
@@ -140,7 +141,7 @@ def test_existing_tab_has_copy_and_action_controls(client):
     assert b"copyAllExisting(" in html
     assert b"<th>action</th>" in html              # per-row create/patch column
     assert b"Set all actions" in html              # master dropdown
-    assert b"const EXISTING =" in html             # full records embedded for copy
+    assert b"let EXISTING =" in html               # full records embedded for copy
 
 
 def test_load_summary_includes_patched_via_stub(client):
@@ -245,6 +246,61 @@ def test_bulk_set_all_queues_controls_present(client):
     assert b"Apply queues to all rows" in html
     assert b"applyQueuesToAll(" in html
     assert b"buildBulkQueues(" in html
+
+
+def test_refresh_existing_returns_fresh_list_and_updates_state():
+    fresh = [
+        {
+            "username": "u2", "email": "u2@x.io", "first_name": "U", "last_name": "Two",
+            "auth_type": "password", "role_names": ["annotator"], "queue_names": ["Q1"],
+        }
+    ]
+    state = make_state(refresher=lambda: fresh)
+    app = create_app(state)
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    c.get("/?key=s3cr3t")
+    resp = c.post("/existing-users/refresh")
+    assert resp.status_code == 200
+    assert resp.get_json()["existing"] == fresh
+    # Subsequent index renders (and the loader hand-off) see the fresh list.
+    assert state.existing_users == fresh
+
+
+def test_refresh_existing_requires_session():
+    app = create_app(make_state(refresher=lambda: []))
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    assert c.post("/existing-users/refresh").status_code == 403
+
+
+def test_refresh_existing_returns_500_when_refresher_raises():
+    def boom():
+        raise RuntimeError("kaboom")
+    app = create_app(make_state(refresher=boom))
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    c.get("/?key=s3cr3t")
+    resp = c.post("/existing-users/refresh")
+    assert resp.status_code == 500
+    assert "kaboom" in resp.get_json()["error"]
+    # The old list is kept on failure.
+
+
+def test_refresh_existing_returns_500_when_no_refresher(client):
+    client.get("/?key=s3cr3t")
+    assert client.post("/existing-users/refresh").status_code == 500
+
+
+def test_index_has_refresh_controls(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b'id="existing-body"' in html        # re-renderable tbody
+    assert b"renderExisting(" in html           # client-side re-render
+    assert b"let EXISTING" in html              # reassignable on refresh
+    assert b"let EXISTING_USERNAMES" in html
+    assert b'id="refresh-status"' in html       # inline refreshing/updated/error hint
+    # Button on the Existing Users tab + auto-refresh after a successful load.
+    assert html.count(b"refreshExisting(") >= 2
 
 
 def test_patch_field_highlighting_machinery_present(client):

@@ -40,6 +40,9 @@ class AppState:
     queues: list[dict]
     existing_users: list[dict]
     loader: Callable[[list[dict]], list[dict]]
+    # Re-fetches existing users from Rossum (injected by the back-end, like
+    # ``loader``) and returns the enriched list. None when refresh is unwired.
+    refresh_users: Callable[[], list[dict]] | None = None
     last_log: list[dict] = field(default_factory=list)
 
 
@@ -146,6 +149,20 @@ def create_app(state: AppState) -> Flask:
             return jsonify({"error": str(exc)}), 500
         state.last_log = records
         return jsonify({"summary": _summarize(records), "records": _jsonable(records)})
+
+    @app.post("/existing-users/refresh")
+    def refresh_existing():
+        # POST (not GET) so the cross-site-Origin gate above applies — the
+        # refresh triggers real Rossum API calls on the back-end.
+        if state.refresh_users is None:
+            return jsonify({"error": "Refresh is not available"}), 500
+        try:
+            fresh = state.refresh_users()
+        except Exception as exc:  # noqa: BLE001
+            # Keep the old list; the front end shows the error inline.
+            return jsonify({"error": str(exc)}), 500
+        state.existing_users = fresh
+        return jsonify({"existing": fresh})
 
     @app.get("/log.csv")
     def log_csv():

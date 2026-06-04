@@ -201,6 +201,8 @@
         <div class="table-toolbar">
           <button class="button" onclick="copySelectedExisting()">Copy selected to load list (as patch)</button>
           <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
+          <button class="button secondary" onclick="refreshExisting()">⟳ Refresh</button>
+          <span id="refresh-status"></span>
           <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.</span>
         </div>
         <div class="table-wrap">
@@ -208,7 +210,7 @@
             <thead><tr>
               <th><input type="checkbox" onclick="toggleAllExisting(this)" title="Select all"></th>
               <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>auth_type</th><th>roles</th><th>queues</th></tr></thead>
-            <tbody>
+            <tbody id="existing-body">
               {% for u in existing %}
               <tr>
                   <td class="actions-col"><input type="checkbox" class="existing-select" value="{{ loop.index0 }}"></td>
@@ -226,8 +228,8 @@
   <script>
     const ROLES = {{ roles | tojson }};
     const QUEUES = {{ queues | tojson }};
-    const EXISTING = {{ existing | tojson }};
-    const EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
+    let EXISTING = {{ existing | tojson }};
+    let EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
     const TEXT_COLS = ["email", "first_name", "last_name", "username", "oidc_id"];
     // Client-side limits (mirror server-side validation.py; server is authoritative).
     const MAX_ADD_ROWS = 100;
@@ -430,6 +432,52 @@
       showPane('load');
     }
     function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
+
+    // Rebuild the Existing Users table from EXISTING (mirrors the server-side
+    // Jinja render used for the initial page load). DOM/textContent only — the
+    // user records are never injected as HTML.
+    function renderExisting() {
+      const body = document.getElementById('existing-body');
+      body.innerHTML = '';
+      EXISTING.forEach((u, i) => {
+        const tr = document.createElement('tr');
+        const sel = document.createElement('input');
+        sel.type = 'checkbox'; sel.className = 'existing-select'; sel.value = String(i);
+        const selTd = td(sel); selTd.className = 'actions-col';
+        tr.appendChild(selTd);
+        [u.username, u.email, u.first_name, u.last_name, u.auth_type,
+         (u.role_names || []).join(', '), (u.queue_names || []).join(', ')].forEach(v => {
+          const c = document.createElement('td');
+          c.textContent = v == null ? '' : String(v);
+          tr.appendChild(c);
+        });
+        body.appendChild(tr);
+      });
+    }
+
+    async function refreshExisting() {
+      const status = document.getElementById('refresh-status');
+      status.className = ''; status.textContent = 'refreshing…';
+      try {
+        const resp = await fetch('/existing-users/refresh', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          // Keep the current list; just surface the error.
+          status.className = 'err';
+          status.textContent = 'Refresh failed: ' + (data.error || resp.status);
+          return;
+        }
+        EXISTING = data.existing;
+        EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
+        renderExisting();
+        refreshDupWarning();  // dup/skip highlighting depends on EXISTING_USERNAMES
+        status.className = 'ok';
+        status.textContent = 'Updated — ' + EXISTING.length + ' user(s).';
+      } catch (e) {
+        status.className = 'err';
+        status.textContent = 'Refresh failed: ' + e;
+      }
+    }
 
     function effUsername(tr) {
       const get = (col) => {
@@ -654,6 +702,10 @@
           ', <span class="err">errors ' + s.errors + '</span> of ' + s.total + '.';
         renderResults(data.records);
         document.getElementById('loglink').style.display = 'inline-block';
+        // The load just created/patched users — refetch the Existing Users tab
+        // so it (and the dup-checks) reflect the new state. A refresh failure
+        // only marks the refresh status; the load results above stay intact.
+        refreshExisting();
       } catch (e) {
         status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
       }
