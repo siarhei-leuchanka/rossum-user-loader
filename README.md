@@ -25,6 +25,19 @@ skips the prompt entirely (handy for automation). Then you provide the target
 organization ID and the path to a `.csv` or `.xlsx` file (sheet name is asked
 only for `.xlsx`). A timestamped log is written next to your input file.
 
+For repeated local testing, every prompt can be pre-answered via environment
+variables: `ROSSUM_DOMAIN`, `ROSSUM_ORG_ID`, and either `ROSSUM_API_TOKEN` or
+`ROSSUM_USERNAME` + `ROSSUM_PASSWORD` (exchanged for a fresh token at startup;
+the token variable wins when both are set). Copy `.env.example` to a
+git-ignored `.env`, fill it in, and load it before running:
+
+```bash
+set -a; source .env; set +a
+rossum-user-loader web
+```
+
+Anything left unset is prompted for as usual.
+
 Start from `templates/user_load_template.xlsx`. The first data row is treated
 as an example and skipped; add real users beneath it. Columns:
 

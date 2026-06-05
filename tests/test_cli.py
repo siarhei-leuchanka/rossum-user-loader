@@ -10,6 +10,13 @@ def _no_network_verify(monkeypatch):
     monkeypatch.setattr(cli.core, "verify_credentials", lambda domain, token: None)
 
 
+@pytest.fixture(autouse=True)
+def _clear_rossum_env(monkeypatch):
+    # Keep tests hermetic: a developer's local .env must not leak into prompts.
+    for var in ("ROSSUM_DOMAIN", "ROSSUM_ORG_ID", "ROSSUM_USERNAME", "ROSSUM_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+
+
 def test_console_reporter_applies_level_colors(capsys):
     for level, color in [("ok", cli.GREEN), ("error", cli.RED), ("skip", cli.RED), ("info", cli.BLUE)]:
         cli._console_reporter(level, "msg")
@@ -78,6 +85,96 @@ def test_gather_connection_env_token_skips_selection(monkeypatch):
     conn = cli.gather_connection()
     assert isinstance(conn["credentials"], Token)
     assert conn["credentials"].token == "ENVTOKEN"
+
+
+def test_gather_connection_fully_from_env_never_prompts(monkeypatch):
+    # With domain, org and token in the environment nothing is prompted at all.
+    monkeypatch.setenv("ROSSUM_DOMAIN", "https://x.rossum.app/api/v1")
+    monkeypatch.setenv("ROSSUM_ORG_ID", "42")
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
+
+    def _boom(*a, **k):
+        raise AssertionError("no prompt may be shown when the env provides everything")
+
+    monkeypatch.setattr("builtins.input", _boom)
+    monkeypatch.setattr(cli.getpass, "getpass", _boom)
+    conn = cli.gather_connection()
+    assert conn["domain"] == "https://x.rossum.app/api/v1"
+    assert conn["credentials"].token == "ENVTOKEN"
+    assert conn["organization"] == "https://x.rossum.app/api/v1/organizations/42"
+
+
+def test_gather_connection_env_username_password_generates_token(monkeypatch):
+    # ROSSUM_USERNAME+ROSSUM_PASSWORD skip the auth menu and /auth/login directly.
+    monkeypatch.setenv("ROSSUM_DOMAIN", "https://x.rossum.app/api/v1")
+    monkeypatch.setenv("ROSSUM_ORG_ID", "42")
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setenv("ROSSUM_USERNAME", "jane@corp.com")
+    monkeypatch.setenv("ROSSUM_PASSWORD", "s3cret")
+
+    def _boom(*a, **k):
+        raise AssertionError("no prompt may be shown when the env provides everything")
+
+    monkeypatch.setattr("builtins.input", _boom)
+    monkeypatch.setattr(cli.getpass, "getpass", _boom)
+    captured = {}
+
+    def fake_gen(domain, username, password):
+        captured.update(domain=domain, username=username, password=password)
+        return "GEN-TOKEN"
+
+    monkeypatch.setattr(cli.core, "generate_token", fake_gen)
+    conn = cli.gather_connection()
+    assert conn["credentials"].token == "GEN-TOKEN"
+    assert captured == {
+        "domain": "https://x.rossum.app/api/v1",
+        "username": "jane@corp.com",
+        "password": "s3cret",
+    }
+
+
+def test_env_token_beats_env_username_password(monkeypatch):
+    # Precedence: an env token wins; /auth/login must not be hit.
+    monkeypatch.setenv("ROSSUM_DOMAIN", "https://x.rossum.app/api/v1")
+    monkeypatch.setenv("ROSSUM_ORG_ID", "42")
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
+    monkeypatch.setenv("ROSSUM_USERNAME", "jane@corp.com")
+    monkeypatch.setenv("ROSSUM_PASSWORD", "s3cret")
+
+    def _no_login(*a, **k):
+        raise AssertionError("generate_token must not be called when a token is set")
+
+    monkeypatch.setattr(cli.core, "generate_token", _no_login)
+    conn = cli.gather_connection()
+    assert conn["credentials"].token == "ENVTOKEN"
+
+
+def test_env_username_password_rejected_exits_cleanly(monkeypatch, capsys):
+    # A bad stored password fails fast with a clear message, no retry loop.
+    monkeypatch.setenv("ROSSUM_DOMAIN", "https://x.rossum.app/api/v1")
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setenv("ROSSUM_USERNAME", "jane@corp.com")
+    monkeypatch.setenv("ROSSUM_PASSWORD", "wrong")
+
+    def fake_gen(domain, username, password):
+        raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(cli.core, "generate_token", fake_gen)
+    with pytest.raises(SystemExit) as ei:
+        cli.gather_connection()
+    assert ei.value.code == 1
+    assert "ROSSUM_USERNAME" in capsys.readouterr().out
+
+
+def test_env_username_without_password_still_prompts(monkeypatch):
+    # Only one half set -> fall back to the normal interactive flow.
+    monkeypatch.setenv("ROSSUM_USERNAME", "jane@corp.com")
+    inputs = iter(["https://x.rossum.app/api/v1", "", "42"])  # domain, auth-choice, org
+    monkeypatch.delenv("ROSSUM_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "TYPED-TOKEN")
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
+    conn = cli.gather_connection()
+    assert conn["credentials"].token == "TYPED-TOKEN"
 
 
 def test_run_web_subcommand_invokes_launcher(monkeypatch):

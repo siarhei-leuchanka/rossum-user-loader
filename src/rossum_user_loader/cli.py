@@ -137,6 +137,21 @@ def _resolve_token(domain: str) -> str:
             raise SystemExit(1) from None
         return token
 
+    # Stored test credentials: both halves set -> exchange for a fresh token
+    # (no retry loop — a bad stored secret should fail fast, not re-prompt).
+    env_user = os.environ.get("ROSSUM_USERNAME")
+    env_pass = os.environ.get("ROSSUM_PASSWORD")
+    if env_user and env_pass:
+        username = validation.validate_username(env_user)
+        password = validation.validate_password(env_pass)
+        try:
+            return core.generate_token(domain, username, password)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{RED}ROSSUM_USERNAME/ROSSUM_PASSWORD were rejected by Rossum — "
+                  f"check the stored values (and the domain URL).\n"
+                  f"Details: {exc}{RESET}")
+            raise SystemExit(1) from None
+
     if _select_auth_method() == "token":
         # Verify the token is real (one authenticated call); re-prompt if rejected,
         # up to MAX_AUTH_ATTEMPTS times, then give up.
@@ -170,15 +185,24 @@ def _resolve_token(domain: str) -> str:
 
 
 def gather_connection() -> dict:
-    """Collect and validate the domain, credentials (token), and organization."""
+    """Collect and validate the domain, credentials (token), and organization.
+
+    Each value can be supplied via the environment (handy for repeated local
+    testing — e.g. a git-ignored ``.env``): ROSSUM_DOMAIN, ROSSUM_ORG_ID, and
+    either ROSSUM_API_TOKEN or ROSSUM_USERNAME+ROSSUM_PASSWORD. Whatever is
+    missing is prompted for as usual.
+    """
     domain = _prompt_valid(
         "Please enter Rossum domain url with /v1 in the end "
         "e.g. https://custom-domain.rossum.app/api/v1: ",
         validation.validate_domain,
+        env_value=os.environ.get("ROSSUM_DOMAIN"),
     )
     token = _resolve_token(domain)
     organization_id = _prompt_valid(
-        "What is the target Organization ID: ", validation.validate_org_id
+        "What is the target Organization ID: ",
+        validation.validate_org_id,
+        env_value=os.environ.get("ROSSUM_ORG_ID"),
     )
     return {
         "credentials": Token(token=token),
