@@ -303,6 +303,15 @@ def test_index_has_refresh_controls(client):
     assert html.count(b"refreshExisting(") >= 2
 
 
+def test_index_backfills_grid_usernames_after_refresh(client):
+    # A row created with username left blank gets the server-defaulted username
+    # (= email) written back into its grid cell once the existing list refreshes.
+    html = client.get("/?key=s3cr3t").data
+    assert b"backfillGridUsernames(" in html
+    # Wired into the refresh success path (definition + call site).
+    assert html.count(b"backfillGridUsernames(") >= 2
+
+
 def test_patch_field_highlighting_machinery_present(client):
     html = client.get("/?key=s3cr3t").data
     assert b"PATCHED_COLS" in html          # list of fields a patch writes

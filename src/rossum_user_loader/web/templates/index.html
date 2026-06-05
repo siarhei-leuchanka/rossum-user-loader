@@ -455,6 +455,25 @@
       });
     }
 
+    // A row created with username left blank got the server-side default
+    // (username = email). Reflect that back into the grid once the refreshed
+    // existing list knows it: fill EMPTY username cells by email match. Never
+    // overwrites a username the user typed; username is identity (not a
+    // patched field), so showing the real value costs nothing.
+    function backfillGridUsernames() {
+      const byEmail = new Map();
+      EXISTING.forEach(u => {
+        if (u.email && u.username) byEmail.set(u.email.toLowerCase(), u.username);
+      });
+      document.querySelectorAll('#grid tr').forEach(tr => {
+        const userInp = tr.querySelector('input[data-col="username"]');
+        const emailInp = tr.querySelector('input[data-col="email"]');
+        if (!userInp || !emailInp || userInp.value.trim()) return;
+        const found = byEmail.get(emailInp.value.trim().toLowerCase());
+        if (found) userInp.value = found;
+      });
+    }
+
     async function refreshExisting() {
       const status = document.getElementById('refresh-status');
       status.className = ''; status.textContent = 'refreshing…';
@@ -470,6 +489,7 @@
         EXISTING = data.existing;
         EXISTING_USERNAMES = new Set(EXISTING.map(u => (u.username || '').toLowerCase()));
         renderExisting();
+        backfillGridUsernames();  // reflect server-defaulted usernames into the grid
         refreshDupWarning();  // dup/skip highlighting depends on EXISTING_USERNAMES
         status.className = 'ok';
         status.textContent = 'Updated — ' + EXISTING.length + ' user(s).';
