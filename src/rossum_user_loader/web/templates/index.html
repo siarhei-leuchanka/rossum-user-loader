@@ -74,6 +74,12 @@
     .pane { display: none; }
     .pane.active { display: block; }
     #status { margin: .6rem 0; font-weight: 600; }
+    /* Inline progress spinner for slow (rate-limited) loads/refreshes. */
+    .spinner { display: inline-block; width: 14px; height: 14px; vertical-align: -2px;
+      border: 2px solid #c5d5de; border-top-color: var(--dj-header); border-radius: 50%;
+      margin-right: .4rem; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .start-load:disabled { background: #9e9e9e; cursor: wait; box-shadow: none; }
     .ok { color: #137333; } .err { color: #b00020; }
 
     /* Row state highlights */
@@ -500,7 +506,8 @@
 
     async function refreshExisting() {
       const status = document.getElementById('refresh-status');
-      status.className = ''; status.textContent = 'refreshing…';
+      status.className = '';
+      status.innerHTML = spinnerHtml('refreshing…');
       try {
         const resp = await fetch('/existing-users/refresh', { method: 'POST' });
         const data = await resp.json();
@@ -741,7 +748,10 @@
     async function startLoad() {
       const rows = collectRows();
       const status = document.getElementById('status');
-      status.textContent = 'Loading ' + rows.length + ' user(s)...';
+      const startBtn = document.querySelector('.start-load');
+      startBtn.disabled = true;
+      status.innerHTML = spinnerHtml('Loading ' + rows.length + ' user(s)… '
+        + 'Large loads are rate-limited to respect Rossum API limits.');
       try {
         const resp = await fetch('/load', {
           method: 'POST',
@@ -769,7 +779,14 @@
         refreshExisting();
       } catch (e) {
         status.innerHTML = '<span class="err">Request failed: ' + e + '</span>';
+      } finally {
+        startBtn.disabled = false;
       }
+    }
+
+    function spinnerHtml(text) {
+      // `text` is always one of our own literal strings — never user input.
+      return '<span class="spinner"></span>' + text;
     }
 
     function renderResults(records) {

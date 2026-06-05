@@ -365,3 +365,15 @@ def test_patch_field_highlighting_machinery_present(client):
     assert b"highlightPatchFields(" in html
     assert b"will-patch" in html            # cell highlight class + CSS
     assert b"Will be written to the existing user" in html
+
+
+def test_load_and_refresh_show_spinner_and_disable_start(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b"spinner" in html                 # CSS class + animation
+    assert b"@keyframes spin" in html
+    # Start Load is disabled while a load is in flight and re-enabled after.
+    assert b"startBtn.disabled = true" in html
+    assert b"startBtn.disabled = false" in html
+    # Spinner markup is produced by a shared JS helper used by both the load
+    # status and the refresh status (definition + >=2 call sites).
+    assert html.count(b"spinnerHtml(") >= 3
