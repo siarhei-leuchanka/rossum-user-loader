@@ -321,6 +321,15 @@ def test_patch_rows_say_email_and_username_are_not_patchable(client):
     assert b"does not allow changing email" in html
 
 
+def test_patch_rows_lock_username_and_email_inputs(client):
+    html = client.get("/?key=s3cr3t").data
+    # Username/email become read-only while action=patch (definition + call).
+    assert html.count(b"lockIdentityFields(") >= 2
+    assert b"readOnly" in html
+    # Visual cue for the locked cells.
+    assert b"input[readonly]" in html
+
+
 def test_patch_field_highlighting_machinery_present(client):
     html = client.get("/?key=s3cr3t").data
     assert b"PATCHED_COLS" in html          # list of fields a patch writes

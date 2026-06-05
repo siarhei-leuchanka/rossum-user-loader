@@ -88,6 +88,8 @@
     /* Cells whose value WILL be written to the existing user when action=patch.
        Placed after the tr.* row rules so the per-cell highlight wins. */
     td.will-patch { background: #dbeafe; box-shadow: inset 0 0 0 2px #93c5fd; }
+    /* Identity fields locked while action=patch (match-only, never written). */
+    #grid input[readonly] { background: #f3f3f3; color: #555; cursor: not-allowed; }
     #dupwarn { margin: .2rem 0; color: #b00020; font-weight: 600; }
     #dupwarn div { margin: .15rem 0; }
     .actions-col { white-space: nowrap; }
@@ -520,6 +522,15 @@
     const PATCHED_COLS = ['auth_type', 'first_name', 'last_name', 'oidc_id',
                           'role', 'queue_ids', 'can_approve'];
 
+    // Patch never writes username/email (they only identify the user), so lock
+    // them while action=patch — switch the row back to "create" to edit them.
+    function lockIdentityFields(tr, isPatch) {
+      ['username', 'email'].forEach(col => {
+        const el = tr.querySelector('input[data-col="' + col + '"]');
+        if (el) el.readOnly = isPatch;
+      });
+    }
+
     function highlightPatchFields(tr, isPatch) {
       tr.querySelectorAll('[data-col]').forEach(el => {
         if (PATCHED_COLS.indexOf(el.dataset.col) < 0) return;
@@ -554,6 +565,7 @@
         tr.classList.toggle('warn', patchNoTarget && !dupInList);
         tr.classList.toggle('dupinlist', dupInList);
         highlightPatchFields(tr, action === 'patch');
+        lockIdentityFields(tr, action === 'patch');
 
         const titles = [];
         if (dupInList) {
