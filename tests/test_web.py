@@ -81,7 +81,7 @@ def test_log_csv_after_load(client):
 
 def test_index_contains_grid_and_controls(client):
     html = client.get("/?key=s3cr3t").data
-    for marker in (b'id="grid"', b'id="paste"', b"Clear", b"Download CSV template", b"Start Load"):
+    for marker in (b'id="grid"', b"Clear", b"Download CSV template", b"Start Load"):
         assert marker in html
     assert b"annotator" in html
     assert b"Q1" in html
@@ -319,6 +319,35 @@ def test_patch_rows_say_email_and_username_are_not_patchable(client):
     assert b"cannot be changed by a patch" in html
     # The why, for email specifically (Rossum API restriction).
     assert b"does not allow changing email" in html
+
+
+def test_paste_rows_feature_removed(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b'id="paste"' not in html
+    assert b"importPaste(" not in html
+    # Loading rows from a CSV file stays.
+    assert b"loadCsvFile(" in html
+    assert b"parseDelimited(" in html
+
+
+def test_existing_users_csv_download_compatible_with_load(client):
+    html = client.get("/?key=s3cr3t").data
+    # Button on the Existing Users tab + the generator (definition + call site).
+    assert html.count(b"downloadExistingCsv(") >= 2
+    # Cells are quoted/escaped so ';' and multi-line queue_ids survive a
+    # round-trip through the Load-CSV parser (same HEADER + DELIM).
+    assert b"csvField(" in html
+
+
+def test_csv_import_auto_patches_rows_matching_existing_users(client):
+    html = client.get("/?key=s3cr3t").data
+    # Imported rows whose username/email match an existing user arrive with
+    # action=patch (identity fields locked immediately), like copied rows.
+    assert b"were set to PATCH" in html      # informational note text
+    assert b'id="importnote"' in html        # note element
+    # Matching uses the same username set as the dup checks (>=2: dup check +
+    # import auto-patch).
+    assert html.count(b"EXISTING_USERNAMES.has(") >= 2
 
 
 def test_patch_rows_lock_username_and_email_inputs(client):

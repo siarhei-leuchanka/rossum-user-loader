@@ -44,8 +44,6 @@
     .ds-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0 0 .6rem; }
     .ds-file input[type="file"] { font-size: 13px; }
     details summary { cursor: pointer; color: #447e9b; font-size: 13px; }
-    #paste { width: 100%; margin: .4rem 0; font-size: 13px; }
-    .ds-paste-actions { display: flex; gap: .5rem; }
 
     /* Toolbar attached to the table */
     .table-toolbar { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
@@ -91,6 +89,7 @@
     /* Identity fields locked while action=patch (match-only, never written). */
     #grid input[readonly] { background: #f3f3f3; color: #555; cursor: not-allowed; }
     #dupwarn { margin: .2rem 0; color: #b00020; font-weight: 600; }
+    #importnote { margin: .2rem 0; color: #2b4b5a; font-weight: 600; }
     #dupwarn div { margin: .15rem 0; }
     .actions-col { white-space: nowrap; }
 
@@ -137,14 +136,6 @@
               <input type="file" id="csvfile" accept=".csv,text/csv" onchange="loadCsvFile(this)">
             </label>
           </div>
-          <details>
-            <summary>…or paste rows (semicolon ";" separated; column order must match the template header)</summary>
-            <textarea id="paste" rows="4" placeholder="auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve"></textarea>
-            <div class="ds-paste-actions">
-              <button class="button" onclick="importPaste()">Import paste</button>
-              <button class="button secondary" onclick="document.getElementById('paste').value=''">Clear paste</button>
-            </div>
-          </details>
         </div>
       </div>
 
@@ -183,6 +174,7 @@
           </table>
         </div>
         <div class="module-foot">
+          <div id="importnote" style="display:none"></div>
           <div id="dupwarn" style="display:none"></div>
         </div>
       </div>
@@ -203,6 +195,7 @@
         <div class="table-toolbar">
           <button class="button" onclick="copySelectedExisting()">Copy selected to load list (as patch)</button>
           <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
+          <button class="button secondary" onclick="downloadExistingCsv()">⬇ Download CSV</button>
           <button class="button secondary" onclick="refreshExisting()">⟳ Refresh</button>
           <span id="refresh-status"></span>
           <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.
@@ -265,7 +258,7 @@
       // name or id; checkboxes keep multi-selection. Selected ids are read on
       // submit (collectRows) and stored "one id per line".
       //
-      // Incoming tokens (from CSV/paste, newline- or comma-separated) may be
+      // Incoming tokens (from CSV, newline- or comma-separated) may be
       // queue IDs OR queue NAMES (case-insensitive). Names can contain spaces,
       // so we do NOT split on spaces. Tokens that match no org queue are shown
       // so the user knows why a queue wasn't assigned.
@@ -406,6 +399,7 @@
       document.getElementById('results').innerHTML = '';
       document.getElementById('status').textContent = '';
       document.getElementById('loglink').style.display = 'none';
+      document.getElementById('importnote').style.display = 'none';
       refreshDupWarning();
     }
 
@@ -475,6 +469,33 @@
         const found = byEmail.get(emailInp.value.trim().toLowerCase());
         if (found) userInp.value = found;
       });
+    }
+
+    // Quote a CSV cell so ';' delimiters, quotes, and multi-line queue_ids
+    // survive a round-trip through parseDelimited / the CLI reader.
+    function csvField(v) {
+      v = v == null ? '' : String(v);
+      return /[";\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }
+
+    // Export the existing users in the exact Load-CSV format (same HEADER
+    // order and ';' delimiter as the template), built via existingToRow so the
+    // file re-imports 1:1 through "Load from CSV file" on the Load Users tab.
+    function downloadExistingCsv() {
+      if (!EXISTING.length) { alert('No existing users to export.'); return; }
+      const lines = [HEADER.join(DELIM)];
+      EXISTING.forEach(u => {
+        const row = existingToRow(u);
+        lines.push(HEADER.map(col => csvField(row[col])).join(DELIM));
+      });
+      const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'existing_users.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
     }
 
     async function refreshExisting() {
@@ -647,21 +668,27 @@
       const first = parsed[0].map(c => c.trim().toLowerCase());
       if (first.includes('email') && first.includes('auth_type')) start = 1;
       let capped = false;
+      let autoPatched = 0;
       for (let i = start; i < parsed.length; i++) {
         if (gridCount() >= MAX_ROWS) { capped = true; break; }
         const cells = parsed[i];
         const vals = {};
         HEADER.forEach((col, j) => { vals[col] = (cells[j] || '').trim(); });
+        // A row matching an existing user is an UPDATE: import it as a patch
+        // row (identity fields locked), exactly like copy-from-existing. As a
+        // create it would only be skipped anyway.
+        const eff = (vals.username || vals.email || '').toLowerCase();
+        if (eff && EXISTING_USERNAMES.has(eff)) { vals.action = 'patch'; autoPatched++; }
         addRow(vals);
       }
       if (capped) alert('Row limit reached (' + MAX_ROWS + '). Remaining rows were not imported.');
+      const note = document.getElementById('importnote');
+      note.textContent = autoPatched
+        ? 'ℹ ' + autoPatched + ' imported row(s) match existing users and were set to PATCH — '
+          + 'username/email locked (they only identify the user); the highlighted fields will update them.'
+        : '';
+      note.style.display = autoPatched ? 'block' : 'none';
       refreshDupWarning();
-    }
-
-    function importPaste() {
-      const text = document.getElementById('paste').value;
-      if (!text.trim()) return;
-      importDelimited(text);
     }
 
     function loadCsvFile(input) {
@@ -702,7 +729,7 @@
     function confirmAndStart() {
       const n = document.querySelectorAll('#grid tr').length;
       if (n === 0) {
-        alert('No rows to load — add rows, load a CSV, or paste data first.');
+        alert('No rows to load — add rows or load a CSV first.');
         return;
       }
       const ok = window.confirm(
