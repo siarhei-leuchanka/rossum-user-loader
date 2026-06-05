@@ -57,9 +57,27 @@ class RateLimitedTransport(httpx.AsyncBaseTransport):
                 wait = 1.0 - (now - self._sends[0])
             await asyncio.sleep(max(wait, 0.001))
 
+    @staticmethod
+    def _retry_wait(response: httpx.Response, attempt: int) -> float:
+        """Server-mandated wait, else exponential backoff (1, 2, 4, ... s)."""
+        raw = response.headers.get("Retry-After", "")
+        try:
+            wait = float(raw)
+        except ValueError:
+            wait = float(2 ** attempt)
+        return min(max(wait, 0.0), MAX_WAIT_SECONDS)
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        await self._throttle()
-        return await self._inner.handle_async_request(request)
+        for attempt in range(self._max_retries + 1):
+            await self._throttle()
+            response = await self._inner.handle_async_request(request)
+            if response.status_code != 429 or attempt == self._max_retries:
+                return response
+            # Discard the throttled response cleanly before retrying.
+            await response.aread()
+            await response.aclose()
+            await asyncio.sleep(self._retry_wait(response, attempt))
+        return response  # pragma: no cover (loop always returns)
 
     async def aclose(self) -> None:
         await self._inner.aclose()
