@@ -351,7 +351,11 @@ def verify_credentials(domain: str, token: str) -> None:
     Lists users (which the loader needs anyway) and stops after the first item.
     """
     async def _run():
-        client = AsyncRossumAPIClient(base_url=domain, credentials=Token(token=token))
+        from rossum_user_loader import ratelimit
+
+        client = ratelimit.install(
+            AsyncRossumAPIClient(base_url=domain, credentials=Token(token=token))
+        )
         async for _user in client.list_users():
             break
 

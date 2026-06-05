@@ -17,7 +17,7 @@ from typing import NoReturn
 from rossum_api import AsyncRossumAPIClient
 from rossum_api.dtos import Token
 
-from rossum_user_loader import __version__, core, csvio, excel, validation
+from rossum_user_loader import __version__, core, csvio, excel, ratelimit, validation
 
 # ANSI colors used in console output.
 RED = "\033[91m"
@@ -234,8 +234,10 @@ def _read_input_rows(config: dict) -> list[dict]:
 
 
 async def load_users(config: dict) -> None:
-    client = AsyncRossumAPIClient(
-        base_url=config["domain"], credentials=config["credentials"]
+    client = ratelimit.install(
+        AsyncRossumAPIClient(
+            base_url=config["domain"], credentials=config["credentials"]
+        )
     )
 
     # A log is ALWAYS written — even if reading the file or reaching Rossum

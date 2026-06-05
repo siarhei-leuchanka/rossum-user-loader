@@ -116,3 +116,21 @@ def test_install_swaps_sdk_http_client_and_preserves_timeout():
     http_client = sdk._http_client.client
     assert isinstance(http_client._transport, ratelimit.RateLimitedTransport)
     assert http_client.timeout.read == 33.0
+
+
+def test_verify_credentials_uses_rate_limiter(monkeypatch):
+    from rossum_user_loader import core, ratelimit
+
+    installed = []
+
+    class _Stop(Exception):
+        pass
+
+    def fake_install(client):
+        installed.append(client)
+        raise _Stop()  # halt before any network call
+
+    monkeypatch.setattr(ratelimit, "install", fake_install)
+    with pytest.raises(_Stop):
+        core.verify_credentials("https://x.test/api/v1", "tok")
+    assert len(installed) == 1

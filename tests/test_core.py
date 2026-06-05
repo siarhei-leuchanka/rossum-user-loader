@@ -192,6 +192,8 @@ def test_generate_token_posts_to_auth_login(monkeypatch):
 
 
 def test_verify_credentials_makes_authenticated_call(monkeypatch):
+    from rossum_user_loader import ratelimit
+
     seen = {}
 
     class _FakeClient:
@@ -205,6 +207,7 @@ def test_verify_credentials_makes_authenticated_call(monkeypatch):
             yield  # marks this an async generator (unreachable)
 
     monkeypatch.setattr(core, "AsyncRossumAPIClient", _FakeClient)
+    monkeypatch.setattr(ratelimit, "install", lambda c: c)
     core.verify_credentials("https://x.rossum.app/api/v1", "TKN")
     assert seen["called"] is True
     assert seen["base_url"] == "https://x.rossum.app/api/v1"

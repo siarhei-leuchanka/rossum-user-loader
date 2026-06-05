@@ -136,6 +136,26 @@ def test_with_assignments_resolves_urls_to_names():
     assert enriched["queue_names"] == ["Q1", "https://x/queues/999"]
 
 
+def test_backend_client_is_rate_limited(monkeypatch):
+    # The backend's lazily-created SDK client must be routed through the
+    # rate limiter (ratelimit.install) before any API call is made.
+    import asyncio as aio
+
+    from rossum_api.dtos import Token
+
+    from rossum_user_loader import ratelimit
+
+    installed = []
+    monkeypatch.setattr(ratelimit, "install", lambda c: installed.append(c) or c)
+
+    backend = launcher.Backend({"domain": "https://x/api/v1", "credentials": Token(token="t")})
+    try:
+        client = aio.run(backend._client_on_loop())
+    finally:
+        backend._loop.call_soon_threadsafe(backend._loop.stop)
+    assert installed == [client]
+
+
 def test_launch_exits_cleanly_on_connection_failure(monkeypatch, capsys):
     # A bad token / domain must produce a clear message + clean exit, not a
     # raw httpx traceback.
