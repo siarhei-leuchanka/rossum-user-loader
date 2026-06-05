@@ -18,6 +18,8 @@ import httpx
 from rossum_api import AsyncRossumAPIClient
 from rossum_api.dtos import Token
 
+from rossum_user_loader import ratelimit
+
 # Columns the loader understands in an input row. The values double as the
 # scaffold for the payload built per user.
 SUPPORTED_COLUMNS = {
@@ -351,8 +353,6 @@ def verify_credentials(domain: str, token: str) -> None:
     Lists users (which the loader needs anyway) and stops after the first item.
     """
     async def _run():
-        from rossum_user_loader import ratelimit
-
         client = ratelimit.install(
             AsyncRossumAPIClient(base_url=domain, credentials=Token(token=token))
         )
