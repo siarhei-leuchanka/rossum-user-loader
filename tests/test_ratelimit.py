@@ -99,3 +99,20 @@ def test_429_budget_exhausted_returns_last_response():
     resp = asyncio.run(go())
     assert resp.status_code == 429          # surfaced to the SDK's own retry/error path
     assert len(inner.times) == 3            # original + max_retries
+
+
+def test_install_swaps_sdk_http_client_and_preserves_timeout():
+    # Pins the SDK-internal contract: the single httpx client lives at
+    # client._http_client.client. If an SDK upgrade moves it, fail loudly here.
+    from rossum_api import AsyncRossumAPIClient
+    from rossum_api.dtos import Token
+
+    sdk = AsyncRossumAPIClient(
+        base_url="https://x.test/api/v1", credentials=Token(token="t"), timeout=33.0
+    )
+    out = ratelimit.install(sdk)
+
+    assert out is sdk
+    http_client = sdk._http_client.client
+    assert isinstance(http_client._transport, ratelimit.RateLimitedTransport)
+    assert http_client.timeout.read == 33.0
