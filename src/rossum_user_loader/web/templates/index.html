@@ -203,7 +203,8 @@
           <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
           <button class="button secondary" onclick="refreshExisting()">⟳ Refresh</button>
           <span id="refresh-status"></span>
-          <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.</span>
+          <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.
+            Username and email cannot be changed by a patch — they only identify the user.</span>
         </div>
         <div class="table-wrap">
           <table>
@@ -568,7 +569,8 @@
           titles.push('No existing user with this username — a "patch" row will fail (nothing to update).');
         } else if (willPatch) {
           titles.push('This will UPDATE (patch) the existing user — the highlighted '
-            + 'fields will be written; username/email only identify the user.');
+            + 'fields will be written. Username and email only identify the user and '
+            + 'cannot be changed by a patch (the Rossum API does not allow changing email).');
         }
         const title = titles.join(' ');
         ['username', 'email'].forEach(col => {

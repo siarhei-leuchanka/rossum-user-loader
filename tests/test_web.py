@@ -312,6 +312,15 @@ def test_index_backfills_grid_usernames_after_refresh(client):
     assert html.count(b"backfillGridUsernames(") >= 2
 
 
+def test_patch_rows_say_email_and_username_are_not_patchable(client):
+    html = client.get("/?key=s3cr3t").data
+    # Explicit message on patch rows' username/email cells AND a visible hint:
+    # these fields identify the user and cannot be changed by a patch.
+    assert b"cannot be changed by a patch" in html
+    # The why, for email specifically (Rossum API restriction).
+    assert b"does not allow changing email" in html
+
+
 def test_patch_field_highlighting_machinery_present(client):
     html = client.get("/?key=s3cr3t").data
     assert b"PATCHED_COLS" in html          # list of fields a patch writes
