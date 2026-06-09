@@ -38,6 +38,10 @@ rossum-user-loader web
 
 Anything left unset is prompted for as usual.
 
+All API traffic is rate-limited to 8 requests/second (headroom under Rossum's
+documented 10 req/s) with `Retry-After`-aware retries on 429, so large loads
+respect the platform limits — they just take a little longer.
+
 Start from `templates/user_load_template.xlsx`. The first data row is treated
 as an example and skipped; add real users beneath it. Columns:
 
@@ -55,10 +59,11 @@ as an example and skipped; add real users beneath it. Columns:
 
 ```
 src/rossum_user_loader/
-  cli.py     # interactive front end + entry point
-  core.py    # user-loading logic (no I/O) — reused by the future web UI
-  excel.py   # spreadsheet read/write (openpyxl)
-  web/       # Flask web UI (app, launcher, templates)
+  cli.py       # interactive front end + entry point
+  core.py      # user-loading logic (no I/O) — reused by the web UI
+  excel.py     # spreadsheet read/write (openpyxl)
+  ratelimit.py # 8 req/s throttle + Retry-After 429 retries (httpx transport)
+  web/         # Flask web UI (app, launcher, templates)
 templates/   # sample upload spreadsheet
 ```
 

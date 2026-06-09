@@ -46,9 +46,13 @@ class Backend:
         if self._client is None:
             from rossum_api import AsyncRossumAPIClient
 
-            self._client = AsyncRossumAPIClient(
-                base_url=self._conn["domain"],
-                credentials=self._conn["credentials"],
+            from rossum_user_loader import ratelimit
+
+            self._client = ratelimit.install(
+                AsyncRossumAPIClient(
+                    base_url=self._conn["domain"],
+                    credentials=self._conn["credentials"],
+                )
             )
         return self._client
 

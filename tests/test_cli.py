@@ -233,6 +233,9 @@ def test_gather_config_prompts_sheet_for_xlsx(monkeypatch):
 
 def test_load_users_writes_log_even_when_collect_data_fails(tmp_path, monkeypatch):
     import asyncio
+
+    from rossum_user_loader import ratelimit
+
     p = tmp_path / "load.csv"
     p.write_text(
         "auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n"
@@ -242,6 +245,7 @@ def test_load_users_writes_log_even_when_collect_data_fails(tmp_path, monkeypatc
     )
     monkeypatch.setattr(cli, "AsyncRossumAPIClient", lambda **k: object())
     monkeypatch.setattr(cli, "Token", lambda **k: None)
+    monkeypatch.setattr(ratelimit, "install", lambda c: c)
 
     async def boom(client):
         raise RuntimeError("401 Unauthorized")
@@ -262,6 +266,9 @@ def test_load_users_writes_log_even_when_collect_data_fails(tmp_path, monkeypatc
 def test_load_users_processes_every_row_and_logs_summary(tmp_path, monkeypatch):
     import asyncio
     from tests.conftest import FakeClient, FakeGroup
+
+    from rossum_user_loader import ratelimit
+
     p = tmp_path / "load.csv"
     p.write_text(
         "auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n"
@@ -272,6 +279,7 @@ def test_load_users_processes_every_row_and_logs_summary(tmp_path, monkeypatch):
     fake = FakeClient()
     monkeypatch.setattr(cli, "AsyncRossumAPIClient", lambda **k: fake)
     monkeypatch.setattr(cli, "Token", lambda **k: None)
+    monkeypatch.setattr(ratelimit, "install", lambda c: c)
 
     async def collect(client):
         return ([], [FakeGroup("annotator", "https://x/g/1")], [])
@@ -334,6 +342,31 @@ def test_gather_connection_gives_up_after_three_bad_tokens(monkeypatch):
         cli.gather_connection()
     assert ei.value.code == 1
     assert calls["n"] == cli.MAX_AUTH_ATTEMPTS  # exactly 3 attempts, then stop
+
+
+def test_load_users_client_is_rate_limited(monkeypatch, tmp_path):
+    import asyncio as aio
+
+    from rossum_api.dtos import Token
+
+    from rossum_user_loader import ratelimit
+
+    installed = []
+    monkeypatch.setattr(ratelimit, "install", lambda c: installed.append(c) or c)
+
+    async def stop_here(client):
+        raise RuntimeError("stop-after-client-construction")
+
+    monkeypatch.setattr(cli.core, "collect_data", stop_here)
+    p = tmp_path / "load.csv"
+    p.write_text("auth_type;email;first_name;last_name;username;oidc_id;role;queue_ids;can_approve\n")
+    config = {
+        "credentials": Token(token="t"), "domain": "https://x/api/v1",
+        "organization": "https://x/api/v1/organizations/1",
+        "file_path": str(p), "sheet_name": "",
+    }
+    aio.run(cli.load_users(config))  # exception is caught internally
+    assert len(installed) == 1
 
 
 def test_gather_connection_gives_up_after_three_failed_logins(monkeypatch):
