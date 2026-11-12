@@ -12,6 +12,7 @@ import asyncio
 import datetime
 import getpass
 import os
+import shlex
 from typing import NoReturn
 
 from rossum_api import AsyncRossumAPIClient
@@ -132,8 +133,9 @@ def _resolve_token(domain: str) -> str:
         try:
             core.verify_credentials(domain, token)
         except Exception as exc:  # noqa: BLE001
-            print(f"{RED}ROSSUM_API_TOKEN was rejected by Rossum.\n"
-                  f"Details: {exc}{RESET}")
+            # A 401 can mean a bad token OR a wrong org domain, so name both.
+            print(f"{RED}Could not sign in with ROSSUM_API_TOKEN. "
+                  f"{core.connection_error_message(exc)}{RESET}")
             raise SystemExit(1) from None
         return token
 
@@ -211,13 +213,34 @@ def gather_connection() -> dict:
     }
 
 
+def _resolve_input_path(raw: str) -> str:
+    """Turn a typed or pasted file path into a real path.
+
+    Strips surrounding whitespace and quotes. If that is not an existing file,
+    also tries undoing shell escaping, which is what macOS Terminal produces
+    when a file is dragged in (``/My\\ Folder/users.csv``). The unescaping is
+    skipped on Windows, where backslashes are path separators. If nothing
+    exists, the path is returned as typed so the error message shows it.
+    """
+    path = raw.strip().strip("'\"")
+    if os.path.exists(path) or os.name == "nt":
+        return path
+    try:
+        parts = shlex.split(raw.strip())
+    except ValueError:  # unbalanced quotes etc.
+        return path
+    if len(parts) == 1 and os.path.exists(parts[0]):
+        return parts[0]
+    return path
+
+
 def gather_config() -> dict:
     """Connection details plus the input file (.csv or .xlsx) for the CLI loader.
 
     CSV has no worksheets, so the sheet-name prompt is only shown for .xlsx.
     """
     conn = gather_connection()
-    file_path = input("Provide a path to load file (.csv or .xlsx): ").strip().strip("'\"")
+    file_path = _resolve_input_path(input("Provide a path to load file (.csv or .xlsx): "))
     sheet_name = ""
     if not file_path.lower().endswith(".csv"):
         sheet_name = input("Provide a sheet name to load file: ").strip()
@@ -287,12 +310,25 @@ def _console_reporter(level: str, message: str) -> None:
 
 
 def _export_log(logger: core.Logger, input_file_path: str) -> None:
-    """Write the run log (CSV) next to the input file."""
+    """Write the run log (CSV) next to the input file.
+
+    Falls back to the current directory when the input file's folder does not
+    exist (e.g. a mistyped path). Never raises: this runs in a ``finally`` on
+    every load, so a log problem must not turn into a traceback.
+    """
     directory = os.path.dirname(input_file_path)
+    if directory and not os.path.isdir(directory):
+        print(f"{RED}Folder {directory!r} does not exist — writing the log to the "
+              f"current folder instead.{RESET}")
+        directory = ""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     name = f"user_load_{timestamp}"
     base = os.path.join(directory, name) if directory else name
-    out_path = csvio.write_log(base, logger.get())
+    try:
+        out_path = csvio.write_log(base, logger.get())
+    except OSError as exc:
+        print(f"{RED}Could not write the log file ({exc}).{RESET}")
+        return
     print(f"{GREEN}Log written to{RESET} {os.path.abspath(out_path)}")
 
 
