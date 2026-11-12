@@ -223,6 +223,8 @@ docs
 # Local CLI run artifacts
 load.csv
 user_load_*.csv
+# ...but never the packaged template: the wheel builder drops git-ignored files.
+!src/rossum_user_loader/data/user_load_template.csv
 
 
 .DS_Store
