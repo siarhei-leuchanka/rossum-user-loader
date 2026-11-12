@@ -61,6 +61,9 @@
     input[type="checkbox"] { width: auto; }
 
     .module-foot { padding: .6rem .8rem; }
+    /* User counter shown inside a module heading */
+    .module > h2 .count { font-weight: 400; text-transform: none; letter-spacing: 0;
+      margin-left: .5rem; opacity: .95; }
 
     /* Prominent submit row (very distinguished) */
     .submit-row { background: #f8f8f8; border: 1px solid var(--dj-line); border-radius: 4px;
@@ -146,7 +149,7 @@
       </div>
 
       <div class="module">
-        <h2>Users to process</h2>
+        <h2>Users to process <span id="load-count" class="count"></span></h2>
         <div class="table-toolbar">
           <label>Add <input id="nrows" type="number" value="1" min="1" max="100" class="num"> row(s) <small>(max 100)</small></label>
           <button class="button" onclick="addRows(parseInt(document.getElementById('nrows').value)||1)">Add</button>
@@ -197,12 +200,14 @@
 
     <section id="pane-existing" class="pane">
       <div class="module">
-        <h2>Existing users</h2>
+        <h2>Existing users <span id="existing-count" class="count"></span></h2>
         <div class="table-toolbar">
           <button class="button" onclick="copySelectedExisting()">Copy selected to load list (as patch)</button>
           <button class="button secondary" onclick="copyAllExisting()">Copy all</button>
           <button class="button secondary" onclick="downloadExistingCsv()">⬇ Download CSV</button>
           <button class="button secondary" onclick="refreshExisting()">⟳ Refresh</button>
+          <label title="Hide users with is_active = no. Select all, Copy and Download CSV only use the users shown.">
+            <input type="checkbox" id="active-only" checked onchange="applyExistingFilter()"> Active users only</label>
           <span id="refresh-status"></span>
           <span class="hint">Tick the users you want, then copy them in as <b>patch</b> rows to update them.
             Username and email cannot be changed by a patch — they only identify the user.</span>
@@ -210,15 +215,18 @@
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th><input type="checkbox" onclick="toggleAllExisting(this)" title="Select all"></th>
-              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>auth_type</th><th>roles</th><th>queues</th></tr></thead>
+              <th><input type="checkbox" id="existing-select-all" onclick="toggleAllExisting(this)" title="Select all shown"></th>
+              <th>username</th><th>email</th><th>first_name</th><th>last_name</th><th>auth_type</th><th>roles</th><th>queues</th>
+              <th>is_active</th><th>email_verified</th></tr></thead>
             <tbody id="existing-body">
+              {% macro yes_no(v) %}{% if v is sameas true %}yes{% elif v is sameas false %}no{% endif %}{% endmacro %}
               {% for u in existing %}
-              <tr>
+              <tr data-index="{{ loop.index0 }}"{% if u.is_active is sameas false %} hidden{% endif %}>
                   <td class="actions-col"><input type="checkbox" class="existing-select" value="{{ loop.index0 }}"></td>
                   <td>{{ u.username }}</td><td>{{ u.email }}</td><td>{{ u.first_name }}</td><td>{{ u.last_name }}</td>
                   <td>{{ u.auth_type }}</td>
-                  <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td></tr>
+                  <td>{{ (u.role_names or []) | join(', ') }}</td><td>{{ (u.queue_names or []) | join(', ') }}</td>
+                  <td>{{ yes_no(u.is_active) }}</td><td>{{ yes_no(u.email_verified) }}</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -424,17 +432,57 @@
       };
     }
 
+    // --- Existing-users view filter ------------------------------------------
+    // View-only: hides rows and scopes the tab's buttons (select all, copy,
+    // download) to what is shown. Duplicate/patch matching (EXISTING_USERNAMES)
+    // deliberately keeps using the FULL list — a hidden user still exists.
+    function isExistingShown(u) {
+      const activeOnly = document.getElementById('active-only').checked;
+      return !activeOnly || u.is_active !== false;  // unknown (null) stays visible
+    }
+    function visibleExisting() { return EXISTING.filter(isExistingShown); }
+    function visibleExistingCheckboxes() {
+      return Array.from(document.querySelectorAll('#existing-body tr'))
+        .filter(isRowVisible)
+        .map(tr => tr.querySelector('.existing-select'))
+        .filter(Boolean);
+    }
+    function applyExistingFilter() {
+      document.querySelectorAll('#existing-body tr').forEach(tr => {
+        const u = EXISTING[Number(tr.dataset.index)];
+        const show = !u || isExistingShown(u);
+        tr.hidden = !show;
+        // A hidden row must not stay selected (it would be copied unseen).
+        if (!show) { const cb = tr.querySelector('.existing-select'); if (cb) cb.checked = false; }
+      });
+      syncSelectAll();
+    }
+    // Keep the header "select all" box truthful for the visible rows.
+    function syncSelectAll() {
+      const master = document.getElementById('existing-select-all');
+      const boxes = visibleExistingCheckboxes();
+      master.checked = boxes.length > 0 && boxes.every(cb => cb.checked);
+    }
+
     function toggleAllExisting(master) {
-      document.querySelectorAll('.existing-select').forEach(cb => { cb.checked = master.checked; });
+      visibleExistingCheckboxes().forEach(cb => { cb.checked = master.checked; });
     }
     function copySelectedExisting() {
-      const idx = Array.from(document.querySelectorAll('.existing-select:checked')).map(cb => Number(cb.value));
+      const idx = visibleExistingCheckboxes().filter(cb => cb.checked).map(cb => Number(cb.value));
       if (!idx.length) { alert('Select at least one existing user (tick the checkboxes).'); return; }
       idx.forEach(i => addRow(existingToRow(EXISTING[i])));
       refreshDupWarning();
       showPane('load');
     }
-    function copyAllExisting() { EXISTING.forEach(u => addRow(existingToRow(u))); refreshDupWarning(); showPane('load'); }
+    function copyAllExisting() {
+      if (!visibleExisting().length) { alert('No users shown to copy.'); return; }
+      visibleExisting().forEach(u => addRow(existingToRow(u)));
+      refreshDupWarning();
+      showPane('load');
+    }
+
+    // Booleans shown as yes/no (same convention as can_approve); unknown -> ''.
+    function yesNo(v) { return v === true ? 'yes' : v === false ? 'no' : ''; }
 
     // Rebuild the Existing Users table from EXISTING (mirrors the server-side
     // Jinja render used for the initial page load). DOM/textContent only — the
@@ -444,18 +492,21 @@
       body.innerHTML = '';
       EXISTING.forEach((u, i) => {
         const tr = document.createElement('tr');
+        tr.dataset.index = String(i);
         const sel = document.createElement('input');
         sel.type = 'checkbox'; sel.className = 'existing-select'; sel.value = String(i);
         const selTd = td(sel); selTd.className = 'actions-col';
         tr.appendChild(selTd);
         [u.username, u.email, u.first_name, u.last_name, u.auth_type,
-         (u.role_names || []).join(', '), (u.queue_names || []).join(', ')].forEach(v => {
+         (u.role_names || []).join(', '), (u.queue_names || []).join(', '),
+         yesNo(u.is_active), yesNo(u.email_verified)].forEach(v => {
           const c = document.createElement('td');
           c.textContent = v == null ? '' : String(v);
           tr.appendChild(c);
         });
         body.appendChild(tr);
       });
+      applyExistingFilter();
     }
 
     // A row created with username left blank got the server-side default
@@ -484,15 +535,23 @@
       return /[";\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     }
 
-    // Export the existing users in the exact Load-CSV format (same HEADER
-    // order and ';' delimiter as the template), built via existingToRow so the
-    // file re-imports 1:1 through "Load from CSV file" on the Load Users tab.
+    // Read-only account flags appended to the export AFTER the Load-CSV
+    // columns. They are informational: import reads HEADER positionally and
+    // the CLI ignores unknown columns, so the file still re-imports 1:1.
+    const EXPORT_EXTRA_COLS = ["is_active","email_verified"];
+
+    // Export the existing users in the Load-CSV format (same HEADER order and
+    // ';' delimiter as the template, plus EXPORT_EXTRA_COLS), built via
+    // existingToRow so the file re-imports through "Load from CSV file".
     function downloadExistingCsv() {
-      if (!EXISTING.length) { alert('No existing users to export.'); return; }
-      const lines = [HEADER.join(DELIM)];
-      EXISTING.forEach(u => {
+      const users = visibleExisting();
+      if (!users.length) { alert('No users shown to export.'); return; }
+      const lines = [HEADER.concat(EXPORT_EXTRA_COLS).join(DELIM)];
+      users.forEach(u => {
         const row = existingToRow(u);
-        lines.push(HEADER.map(col => csvField(row[col])).join(DELIM));
+        const cells = HEADER.map(col => csvField(row[col]))
+          .concat(EXPORT_EXTRA_COLS.map(col => csvField(yesNo(u[col]))));
+        lines.push(cells.join(DELIM));
       });
       const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' });
       const a = document.createElement('a');
@@ -838,7 +897,33 @@
       });
     }
 
+    // --- User counters ------------------------------------------------------
+    // A row hidden by a (future) filter must not be counted as shown. Covers
+    // both the `hidden` attribute and inline display:none.
+    function isRowVisible(tr) { return !tr.hidden && tr.style.display !== 'none'; }
+    function plural(n) { return n + (n === 1 ? ' user' : ' users'); }
+    function updateCounts() {
+      // Load tab: every grid row is submitted by Start Load, so count them all.
+      const nLoad = document.querySelectorAll('#grid tr').length;
+      document.getElementById('load-count').textContent = '(' + plural(nLoad) + ')';
+      // Existing tab: visible rows out of the full list ("showing X of Y" once
+      // anything is filtered out).
+      const rows = Array.from(document.querySelectorAll('#existing-body tr'));
+      const shown = rows.filter(isRowVisible).length;
+      document.getElementById('existing-count').textContent = shown === rows.length
+        ? '(' + plural(rows.length) + ')'
+        : '(showing ' + shown + ' of ' + plural(rows.length) + ')';
+    }
+    // Recount whenever rows are added/removed (add, delete, clear, CSV import,
+    // refresh) or shown/hidden (a filter) — no call site has to remember to.
+    const countObserver = new MutationObserver(updateCounts);
+    countObserver.observe(document.getElementById('grid'), { childList: true });
+    countObserver.observe(document.getElementById('existing-body'),
+      { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style'] });
+
     buildBulkQueues();
+    applyExistingFilter();
+    updateCounts();
     // Start empty — rows are added only when the user presses "Add".
   </script>
 </body>

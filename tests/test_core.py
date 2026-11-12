@@ -45,6 +45,8 @@ class _FakeUser:
         self.oidc_id = oidc_id
         self.groups = []
         self.queues = []
+        self.is_active = True
+        self.email_verified = False
         self.deleted = False
 
 
@@ -64,6 +66,13 @@ async def test_list_active_users_has_username_email_auth_type_and_oidc_id():
     assert users[0]["email"] == "j@x.io"
     assert users[0]["auth_type"] == "sso"
     assert users[0]["oidc_id"] == "oid-7"
+
+
+async def test_list_active_users_has_is_active_and_email_verified():
+    client = _UserClient([_FakeUser("jdoe", "j@x.io")])
+    users = await core.list_active_users(client)
+    assert users[0]["is_active"] is True
+    assert users[0]["email_verified"] is False
 
 
 from tests.conftest import FakeClient
