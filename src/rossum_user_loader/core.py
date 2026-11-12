@@ -126,6 +126,8 @@ async def list_active_users(client: AsyncRossumAPIClient) -> list[dict]:
                     "last_name": user.last_name,
                     "auth_type": user.auth_type,
                     "oidc_id": user.oidc_id,
+                    "is_active": user.is_active,
+                    "email_verified": user.email_verified,
                     "groups": user.groups,
                     "queues": user.queues,
                 }

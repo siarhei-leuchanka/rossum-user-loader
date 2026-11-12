@@ -12,6 +12,7 @@ def make_state(loader=None, refresher=None):
             {
                 "username": "u1", "email": "u1@x.io", "first_name": "U", "last_name": "One",
                 "auth_type": "sso", "role_names": ["editor"], "queue_names": ["Invoices"],
+                "is_active": True, "email_verified": False,
             }
         ],
         loader=loader
@@ -339,6 +340,19 @@ def test_existing_users_csv_download_compatible_with_load(client):
     assert b"csvField(" in html
 
 
+def test_existing_users_show_and_export_is_active_and_email_verified(client):
+    html = client.get("/?key=s3cr3t").data
+    # Column headers on the Existing Users table.
+    assert b"<th>is_active</th>" in html
+    assert b"<th>email_verified</th>" in html
+    # Server-rendered cells use yes/no (same convention as can_approve).
+    assert b"<td>yes</td><td>no</td>" in html
+    # The CSV export appends the two columns AFTER the Load-CSV HEADER, so the
+    # file still re-imports positionally through "Load from CSV file".
+    assert b'EXPORT_EXTRA_COLS = ["is_active","email_verified"]' in html
+    assert b"HEADER.concat(EXPORT_EXTRA_COLS)" in html
+
+
 def test_csv_import_auto_patches_rows_matching_existing_users(client):
     html = client.get("/?key=s3cr3t").data
     # Imported rows whose username/email match an existing user arrive with
@@ -377,3 +391,78 @@ def test_load_and_refresh_show_spinner_and_disable_start(client):
     # Spinner markup is produced by a shared JS helper used by both the load
     # status and the refresh status (definition + >=2 call sites).
     assert html.count(b"spinnerHtml(") >= 3
+
+
+def test_user_counters_on_both_tabs(client):
+    html = client.get("/?key=s3cr3t").data
+    # A counter placeholder in each tab's module heading.
+    assert b'id="load-count"' in html
+    assert b'id="existing-count"' in html
+    # Kept in sync automatically when table rows are added/removed/hidden,
+    # so call sites (add, delete, clear, import, refresh, a future filter)
+    # cannot forget to update it.
+    assert b"function updateCounts(" in html
+    assert b"new MutationObserver(updateCounts)" in html
+
+
+def test_existing_counter_counts_visible_rows_for_future_filter(client):
+    html = client.get("/?key=s3cr3t").data
+    # The existing-users counter is based on VISIBLE rows (hidden ones are
+    # excluded), reporting "showing X of Y" once any row is hidden.
+    assert b"function isRowVisible(" in html
+    assert b"showing " in html and b" of " in html
+
+
+def _client_with_users(users):
+    state = make_state()
+    state.existing_users = users
+    app = create_app(state)
+    app.config.update(TESTING=True)
+    return app.test_client()
+
+
+def _user(username, is_active):
+    return {
+        "username": username, "email": f"{username}@x.io", "first_name": "F",
+        "last_name": "L", "auth_type": "password", "role_names": ["annotator"],
+        "queue_names": [], "is_active": is_active, "email_verified": True,
+    }
+
+
+def test_active_only_filter_toggle_is_on_by_default(client):
+    html = client.get("/?key=s3cr3t").data
+    assert b'id="active-only"' in html
+    assert b'id="active-only" checked' in html
+    assert b"Active users only" in html
+    assert b"function applyExistingFilter(" in html
+
+
+def test_inactive_users_hidden_on_initial_render():
+    c = _client_with_users([_user("act1", True), _user("inact1", False)])
+    html = c.get("/?key=s3cr3t").data.decode()
+    body = html.split('id="existing-body">')[1].split("</tbody>")[0]
+    rows = body.split("<tr")[1:]
+    active_row = next(r for r in rows if "act1@x.io" in r)
+    inactive_row = next(r for r in rows if "inact1@x.io" in r)
+    # Server render already honours the default (filter on) — no flash of
+    # inactive users before the JS runs.
+    assert " hidden" not in active_row.split(">")[0]
+    assert " hidden" in inactive_row.split(">")[0]
+
+
+def test_existing_buttons_act_on_visible_users_only(client):
+    html = client.get("/?key=s3cr3t").data
+    # Copy all + Download CSV iterate the filtered list, not raw EXISTING.
+    assert b"function visibleExisting(" in html
+    assert b"visibleExisting().forEach(u => addRow(existingToRow(u)))" in html
+    assert b"const users = visibleExisting();" in html
+    # Select-all and copy-selected only consider visible rows' checkboxes.
+    assert b"function visibleExistingCheckboxes(" in html
+    assert html.count(b"visibleExistingCheckboxes()") >= 3  # def + select-all + copy-selected
+
+
+def test_duplicate_matching_still_uses_full_existing_list(client):
+    html = client.get("/?key=s3cr3t").data
+    # Filtering is view-only: an inactive user still exists in Rossum, so the
+    # duplicate/patch detection keeps using every existing user.
+    assert b"new Set(EXISTING.map(u => (u.username || '').toLowerCase()))" in html
