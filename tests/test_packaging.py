@@ -83,3 +83,29 @@ def test_every_third_party_import_is_a_declared_dependency():
         if not dists & declared:
             undeclared[module] = sorted(dists)
     assert not undeclared, f"Imported but not declared in pyproject.toml: {undeclared}"
+
+
+def test_templates_contain_only_the_header_row():
+    # Every row is loaded as-is, so an example row in a template would create a
+    # real (junk) user if left in. Templates ship with the header only.
+    import csv
+    import openpyxl
+
+    with open(PACKAGE_DIR / "data" / "user_load_template.csv", newline="", encoding="utf-8-sig") as fh:
+        rows = [r for r in csv.reader(fh, delimiter=";") if any(c.strip() for c in r)]
+    assert len(rows) == 1 and "email" in rows[0]
+
+    wb = openpyxl.load_workbook(ROOT / "templates" / "user_load_template.xlsx")
+    for ws in wb.worksheets:
+        data = [r for r in ws.iter_rows(values_only=True) if any(c not in (None, "") for c in r)]
+        assert len(data) == 1 and "email" in data[0], f"sheet {ws.title!r} has rows besides the header"
+
+
+def test_version_is_the_same_everywhere():
+    # pipx upgrade only picks up a release whose version changed, so every
+    # release must bump all three together.
+    import rossum_user_loader
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    changelog = re.search(r"^## v(\S+)", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
+    assert pyproject == rossum_user_loader.__version__ == changelog
