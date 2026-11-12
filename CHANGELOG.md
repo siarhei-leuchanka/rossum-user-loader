@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.2 — 2026-11-12
+
+### Changed
+- **The templates no longer include an example row.** Both the CSV template (**⬇ Download CSV template** in the web UI) and the xlsx template now contain only the header row. Every row in a file is loaded, so the old example row (`jane.doe@example.com`) created a real user, and sent it a password-reset email, if it was left in. **If you kept a copy of an older template, delete the Jane Doe row before loading.**
+
+### Fixed
+- **Dragging a file into the macOS Terminal now works.** Terminal pastes paths with backslash-escaped spaces (`My\ Folder/users.csv`), which the CLI did not recognise; with a space in the path, the load stopped with a Python error. Quoted paths keep working as before.
+- **The CLI no longer shows a Python error when the input file's folder doesn't exist.** The run log is written to the current folder instead, and if the log can't be written at all you get a one-line warning.
+- **Clearer sign-in error when `ROSSUM_API_TOKEN` is set.** A rejected sign-in can mean a wrong token *or* a wrong domain URL; the message now names both, instead of blaming only the token.
+- **The web UI's load endpoint rejects a malformed request** with a clear error instead of treating it as an empty load. The page itself always sent valid requests, so nothing changes for normal use.
+
+### Documentation
+- **README updated** for pipx users: how to get the templates, the web UI, the optional `username` column, and how to update. It no longer says the first row of a file is skipped; every row has been loaded since May 2026.
+- **"How to update" corrected in the v0.2.0 and v0.2.1 notes.** `pipx upgrade` works whenever the version number changes, which it does with every release; `pipx reinstall` is the fallback.
+
+### How to update
+If you installed with pipx:
+
+```
+pipx upgrade rossum-user-loader
+```
+
+Afterwards, `rossum-user-loader --version` should print `0.2.2`. If it still shows the old version, run `pipx reinstall rossum-user-loader`, which always rebuilds from the latest code.
+
 ## v0.2.1 — 2026-11-12
 
 ### Fixed
@@ -14,10 +38,10 @@
 If you installed with pipx:
 
 ```
-pipx reinstall rossum-user-loader
+pipx upgrade rossum-user-loader
 ```
 
-Afterwards, `rossum-user-loader --version` should print `0.2.1`.
+Afterwards, `rossum-user-loader --version` should print `0.2.1`. If it still shows the old version, run `pipx reinstall rossum-user-loader`, which always rebuilds from the latest code.
 
 ## v0.2.0 — 2026-11-12
 
@@ -48,7 +72,7 @@ Afterwards, `rossum-user-loader --version` should print `0.2.1`.
 If you installed with pipx:
 
 ```
-pipx reinstall rossum-user-loader
+pipx upgrade rossum-user-loader
 ```
 
-Use `reinstall`, not `upgrade`. Earlier releases all report version `0.1.0`, so `pipx upgrade` may decide there is nothing to do. Afterwards, `rossum-user-loader --version` should print `0.2.0`.
+Afterwards, `rossum-user-loader --version` should print `0.2.0`. If it still shows the old version, run `pipx reinstall rossum-user-loader`, which always rebuilds from the latest code.

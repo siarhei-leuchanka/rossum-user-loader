@@ -385,3 +385,86 @@ def test_gather_connection_gives_up_after_three_failed_logins(monkeypatch):
         cli.gather_connection()
     assert ei.value.code == 1
     assert calls["n"] == cli.MAX_AUTH_ATTEMPTS
+
+
+# --- input path handling (drag-and-drop, quotes) -------------------------------
+
+def _make_csv(tmp_path):
+    folder = tmp_path / "dir with space"
+    folder.mkdir()
+    path = folder / "my users.csv"
+    path.write_text("auth_type;email\n", encoding="utf-8")
+    return path
+
+
+def test_resolve_input_path_strips_quotes(tmp_path):
+    path = _make_csv(tmp_path)
+    assert cli._resolve_input_path(f"'{path}'") == str(path)
+    assert cli._resolve_input_path(f'"{path}"') == str(path)
+
+
+@pytest.mark.skipif(cli.os.name == "nt", reason="backslash is a path separator on Windows")
+def test_resolve_input_path_unescapes_terminal_drag_and_drop(tmp_path):
+    # macOS Terminal pastes a dragged file as /a\ b/c\ d.csv (plus a trailing space).
+    path = _make_csv(tmp_path)
+    dragged = str(path).replace(" ", "\\ ") + " "
+    assert cli._resolve_input_path(dragged) == str(path)
+
+
+@pytest.mark.skipif(cli.os.name == "nt", reason="backslash is a path separator on Windows")
+def test_resolve_input_path_prefers_an_existing_path_as_typed(tmp_path):
+    # A file whose real name contains a backslash must not be "unescaped".
+    path = tmp_path / "odd\\ name.csv"
+    path.write_text("x", encoding="utf-8")
+    assert cli._resolve_input_path(str(path)) == str(path)
+
+
+def test_resolve_input_path_keeps_unknown_path_as_typed(tmp_path):
+    # Nothing matches: return what the user typed, so the error shows it.
+    missing = str(tmp_path / "no\\ such.csv")
+    assert cli._resolve_input_path(f"  '{missing}'  ") == missing
+
+
+def test_gather_config_resolves_dragged_path(monkeypatch, tmp_path):
+    path = _make_csv(tmp_path)
+    monkeypatch.setattr(cli, "gather_connection", lambda: {})
+    monkeypatch.setattr("builtins.input", lambda *a, **k: f"'{path}'")
+    assert cli.gather_config()["file_path"] == str(path)
+
+
+# --- the run log must never crash the tool -------------------------------------
+
+def test_export_log_falls_back_to_cwd_when_input_dir_missing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    logger = core.Logger()
+    logger.add("Error - load aborted - file not found")
+    cli._export_log(logger, str(tmp_path / "missing dir" / "users.csv"))
+    assert len(list(tmp_path.glob("user_load_*.csv"))) == 1
+    assert "does not exist" in capsys.readouterr().out
+
+
+def test_export_log_never_raises_when_write_fails(monkeypatch, tmp_path, capsys):
+    def boom(*a, **k):
+        raise PermissionError("read-only folder")
+
+    monkeypatch.setattr(cli.csvio, "write_log", boom)
+    cli._export_log(core.Logger(), str(tmp_path / "users.csv"))  # must not raise
+    assert "Could not write the log" in capsys.readouterr().out
+
+
+# --- connection error wording ----------------------------------------------------
+
+def test_env_token_rejection_message_mentions_domain_too(monkeypatch, capsys):
+    # A 401 can mean a bad token OR a wrong org domain; don't blame only the token.
+    monkeypatch.setenv("ROSSUM_DOMAIN", "https://typo.rossum.app/api/v1")
+    monkeypatch.setenv("ROSSUM_API_TOKEN", "ENVTOKEN")
+
+    def reject(domain, token):
+        raise RuntimeError("HTTP 401")
+
+    monkeypatch.setattr(cli.core, "verify_credentials", reject)
+    with pytest.raises(SystemExit):
+        cli.gather_connection()
+    out = capsys.readouterr().out
+    assert "domain URL" in out
+    assert "HTTP 401" in out

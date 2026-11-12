@@ -136,7 +136,9 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/load")
     def load():
-        payload = request.get_json(force=True, silent=True) or {}
+        payload = request.get_json(force=True, silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Request body must be a JSON object"}), 400
         # Explicit server-side validation: never trust the front end. Bad shape,
         # oversized fields, or too many rows are rejected before any API call.
         try:

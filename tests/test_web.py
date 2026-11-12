@@ -466,3 +466,16 @@ def test_duplicate_matching_still_uses_full_existing_list(client):
     # Filtering is view-only: an inactive user still exists in Rossum, so the
     # duplicate/patch detection keeps using every existing user.
     assert b"new Set(EXISTING.map(u => (u.username || '').toLowerCase()))" in html
+
+
+def test_load_rejects_non_json_body(client):
+    client.get("/?key=s3cr3t")
+    resp = client.post("/load", data="not json", content_type="application/json")
+    assert resp.status_code == 400
+    assert "JSON" in resp.get_json()["error"]
+
+
+def test_load_rejects_json_that_is_not_an_object(client):
+    client.get("/?key=s3cr3t")
+    resp = client.post("/load", json=["a", "b"])
+    assert resp.status_code == 400
