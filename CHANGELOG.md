@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.1 — 2026-11-12
+
+### Fixed
+- **⬇ Download CSV template now works in every install.** In some installs the template file was left out of the package, so the button returned an error instead of downloading the template. This affected v0.2.0 and earlier when installed:
+  - with pipx on **Linux or Windows**, or
+  - from a **local copy of the source** on any system (e.g. `pipx install .`).
+
+  pipx installs on **macOS** were not affected: the file happened to be included there. If the template downloads fine for you, nothing was broken, but updating is still recommended.
+- **Declared `httpx` as a direct dependency.** The tool uses it directly, but it was only arriving through `rossum-api`. Nothing changes for users today; this stops a future `rossum-api` release from breaking the tool by dropping or changing it.
+
+### How to update
+If you installed with pipx:
+
+```
+pipx reinstall rossum-user-loader
+```
+
+Afterwards, `rossum-user-loader --version` should print `0.2.1`.
+
 ## v0.2.0 — 2026-11-12
 
 ### What's new
